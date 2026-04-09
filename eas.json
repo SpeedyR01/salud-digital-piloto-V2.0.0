@@ -1,5 +1,9 @@
 {
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
     "release-apk": {
       "distribution": "internal",
       "android": {
@@ -8,4 +12,3 @@
     }
   }
 }
-

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { StatusBar } from 'expo-status-bar';
 import * as Location from 'expo-location';
 import * as Sharing from 'expo-sharing';
@@ -8,16 +9,100 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import firestore from '@react-native-firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAuf1Embw1YJkskaOW8bo32CmbCv1wbQsk",
+  authDomain: "salud-digital-piloto.firebaseapp.com",
+  projectId: "salud-digital-piloto",
+  storageBucket: "salud-digital-piloto.firebasestorage.app",
+  messagingSenderId: "299384504842",
+  appId: "1:299384504842:android:afe1865f15946c062715f3"
+};
+
+
+const guardarNube = async (datos: any) => {
+  try {
+    const docRef = await firestore()
+      .collection("reportes_semanales")
+      .add({
+        ...datos,
+        fechaServidor: firestore.FieldValue.serverTimestamp(),
+        procesado: false,
+      });
+    console.log("Documento escrito con ID: ", docRef.id);
+  } catch (e) {
+    console.error("Error añadiendo documento: ", e);
+  }
+};
+
 
 type DocType = 'CC' | 'CE' | 'Pasaporte';
-type PatientProfile = { docType: DocType; docNumber: string };
+type PatientProfile = { 
+  name: string;
+  docType: DocType; 
+  docNumber: string; 
+  role: 'especialistas' | 'pacientes'; 
+};
+
+const LoginScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  useEffect(() => {
+    navigation.replace('OnboardingDocument');
+  }, []);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#f7f7f7' }} />
+  );
+};
+
+const validarAccesoLimitado = async (cedulaIngresada: string, rolSeleccionado: 'especialistas' | 'pacientes') => {
+  try {
+    // Referencia directa al documento por la cédula (ID)
+    const userRef = firestore().collection(rolSeleccionado).doc(cedulaIngresada);
+    const doc = await userRef.get();
+
+    if (doc.exists()) {
+      // ÉXITO: El usuario está pre-registrado
+      const datos = doc.data();
+      console.log(`Acceso concedido a ${rolSeleccionado}:`, datos?.nombre);
+      
+      // Aquí puedes guardar el estado de sesión localmente
+      Alert.alert("Acceso Exitoso", `Bienvenido ${datos?.nombre}`);
+    } else {
+      // ERROR: No está en la lista permitida
+      console.log("Error: Usuario no autorizado o cédula incorrecta.");
+      
+      Alert.alert(
+        "Acceso Denegado", 
+        `La cédula ${cedulaIngresada} no está registrada como ${rolSeleccionado === 'especialistas' ? 'Doctor' : 'Paciente'}.`
+      );
+    }
+  } catch (error) {
+    console.error("Error de conexión:", error);
+    Alert.alert("Error", "No se pudo conectar con la base de datos.");
+  }
+};
+
+LocaleConfig.locales['es'] = {
+  monthNames: ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'],
+  monthNamesShort: ['Ene.','Feb.','Mar.','Abr.','May.','Jun.','Jul.','Ago.','Sep.','Oct.','Nov.','Dic.'],
+  dayNames: ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'],
+  dayNamesShort: ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],
+  today: 'Hoy'
+};
+LocaleConfig.defaultLocale = 'es';
 
 type RootStackParamList = {
+  Login: undefined;
+  DoctorDashboard: { doctorData: any; cedula: string };
   OnboardingDocument: undefined;
-  HomeServices: undefined;
+  HomeServices: { patientData: any; cedula: string } | undefined;
   GeneralAppointment: undefined;
+  SymptomReport: undefined;
   GeneralAppointmentConfirm: { slotLabel: string };
   SpecialistList: undefined;
   SpecialistAppointment: { specialization: string };
@@ -40,6 +125,38 @@ type PatientContextValue = {
 };
 
 const PatientContext = createContext<PatientContextValue | null>(null);
+
+const DoctorScreen = ({ route, navigation }: any) => {
+  // Asumiendo que pasas la cédula o el nombre por parámetros
+  const { idDoctor } = route.params || { idDoctor: 'No identificado' };
+
+  return (
+    <SafeAreaView style={styles.doctorContainer}>
+      <View style={styles.header}>
+        <Text style={styles.welcomeText}>Panel del Especialista</Text>
+        <Text style={styles.idText}>ID: {idDoctor}</Text>
+      </View>
+
+      <ScrollView style={styles.scrollContent}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Próximas Citas</Text>
+          <View style={styles.appointmentItem}>
+            <Text style={styles.patientName}>Paciente: Juan Pérez</Text>
+            <Text style={styles.timeText}>10:30 AM - Consulta General</Text>
+          </View>
+          {/* Aquí mapearías las citas desde Firebase más adelante */}
+        </View>
+
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.buttonText}>Cerrar Sesión</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
 
 function usePatient() {
   const ctx = useContext(PatientContext);
@@ -234,13 +351,16 @@ function ScreenChrome({
   showEmergency?: boolean;
 }) {
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{title}</Text>
-        {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+    <SafeAreaView style={[styles.safe, { flex: 1 }]}>
+      {/* El View interno necesita flex: 1 para que el FAB absolute tenga espacio */}
+      <View style={{ flex: 1 }}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        </View>
+        {children}
+        {showEmergency ? <EmergencyFAB /> : null}
       </View>
-      {children}
-      {showEmergency ? <EmergencyFAB /> : null}
     </SafeAreaView>
   );
 }
@@ -250,8 +370,53 @@ function OnboardingDocumentScreen() {
   const { setProfile, clearProfile } = usePatient();
   const [docType, setDocType] = useState<DocType>('CC');
   const [docNumber, setDocNumber] = useState('');
+  const [userRole, setUserRole] = useState<'especialistas' | 'pacientes' | null>(null); // Nuevo estado
   const [error, setError] = useState<string | null>(null);
-  const canContinue = docNumber.trim().length >= 5;
+  const [loading, setLoading] = useState(false); // Estado para feedback visual
+
+  const canContinue = docNumber.trim().length === 10 && userRole !== null;
+
+  // FUNCIÓN DE DIRECCIONAMIENTO Y VALIDACIÓN
+  const handleAuth = async () => {
+    if (!canContinue) return;
+    
+    setLoading(true);
+    setError(null);
+
+    try {
+      // 1. Buscamos directamente en la colección elegida por el ID (cédula)
+      const userDoc = await firestore()
+        .collection(userRole!)
+        .doc(docNumber.trim())
+        .get();
+
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        
+        // 2. Guardamos en el perfil global
+        setProfile({
+          docType,
+          docNumber: docNumber.trim(),
+          name: data?.nombre || '',
+          role: userRole // Puedes extender tu interfaz de perfil
+        });
+
+        // 3. DIRECCIONAMIENTO SEGÚN ROL
+        if (userRole === 'especialistas') {
+          nav.reset({ index: 0, routes: [{ name: 'DoctorDashboard' }] });
+        } else {
+          nav.reset({ index: 0, routes: [{ name: 'HomeServices' }] });
+        }
+      } else {
+        setError(`No se encontró un ${userRole === 'especialistas' ? 'Doctor' : 'Paciente'} con esa cédula.`);
+      }
+    } catch (e) {
+      console.error(e);
+      setError('Error de conexión con el servidor.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -266,7 +431,27 @@ function OnboardingDocumentScreen() {
             <Text style={styles.idEmergencyText}>¿Es una emergencia? Llame al 911.</Text>
           </View>
 
-          <Text style={styles.idWelcomeTitle}>Hola, bienvenido</Text>
+          <Text style={styles.idWelcomeTitle}>Acceso al sistema</Text>
+          <Text style={styles.idWelcomeSubtitle}>Seleccione su perfil e ingrese su documento.</Text>
+
+          <View style={styles.idFieldGroup}>
+            <Text style={styles.idFieldLabel}>Tipo de Usuario</Text>
+            <View style={styles.docGrid}>
+              <Pressable
+                onPress={() => setUserRole('especialistas')}
+                style={[styles.docOption, userRole === 'especialistas' && styles.docOptionSelected]}
+              >
+                <Text style={[styles.docOptionText, userRole === 'especialistas' && styles.docOptionTextSelected]}>Doctor</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setUserRole('pacientes')}
+                style={[styles.docOption, userRole === 'pacientes' && styles.docOptionSelected]}
+              >
+                <Text style={[styles.docOptionText, userRole === 'pacientes' && styles.docOptionTextSelected]}>Paciente</Text>
+              </Pressable>
+            </View>
+          </View>
+
           <Text style={styles.idWelcomeSubtitle}>
             Para comenzar su consulta médica, por favor ingrese los datos de su documento de identidad.
           </Text>
@@ -306,28 +491,18 @@ function OnboardingDocumentScreen() {
                 setError(null);
               }}
               keyboardType="number-pad"
-              maxLength={15}
-              placeholder="Ej: 12345678"
-              placeholderTextColor="#6b7280"
-              style={styles.idNumberInput}
-              accessibilityLabel="Número de documento"
+              maxLength={10}
+              placeholder="Ej: 1234567890"
+              style={[styles.idNumberInput, canContinue && { borderColor: '#0b764a' }]}
             />
-            <Text style={styles.idHint}>Use el teclado numérico para escribir su número.</Text>
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
 
           <View style={{ height: 16 }} />
           <LargePrimaryButton
-            label="Continuar"
-            disabled={!canContinue}
-            onPress={() => {
-              if (!canContinue) {
-                setError('Ingrese un número válido.');
-                return;
-              }
-              setProfile({ docType, docNumber: docNumber.trim() });
-              nav.reset({ index: 0, routes: [{ name: 'HomeServices' }] });
-            }}
+            label={loading ? "Verificando..." : "Continuar"}
+            disabled={!canContinue || loading}
+            onPress={handleAuth} // Llamamos a la función asíncrona
           />
 
           <LargePrimaryButton
@@ -370,7 +545,11 @@ function HomeServicesScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.homeHeader}>
         <View style={styles.homeHeaderLeft}>
-          <Text style={styles.homeHeaderIcon}>＋</Text>
+          <Pressable
+            onPress={() => nav.navigate('SymptomReport')}
+            style={({ pressed}) => [{ opacity: pressed ? 0.5 : 1}]}>
+            <Text style={styles.homeHeaderIcon}>＋</Text>
+          </Pressable>
           <Text style={styles.homeHeaderTitle}>Salud Principal</Text>
         </View>
         <Pressable
@@ -476,21 +655,46 @@ function ListOfSlots({ title, onPick }: { title: string; onPick: (slotLabel: str
 function GeneralAppointmentScreen() {
   const nav = useNavigation<Nav>();
   const { profile } = usePatient();
-  const [selectedSlot, setSelectedSlot] = useState<string>(slotOptions[1]?.label ?? slotOptions[0].label);
+  
+  // 1. Estados para los datos de la API
+  const [citas, setCitas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSlot, setSelectedSlot] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState('');
+
+  // 2. Función para obtener datos de Render
+  const fetchCitas = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('https://salud-api-speedy.onrender.com/api/citas');
+      const data = await response.json();
+      
+      setCitas(data);
+      
+      // Seleccionar la primera cita por defecto si hay alguna
+      if (data.length > 0) {
+        setSelectedSlot(data[0].id);
+      }
+    } catch (error) {
+      console.error("Error cargando citas:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!profile) {
       nav.reset({ index: 0, routes: [{ name: 'OnboardingDocument' }] });
+    } else {
+      fetchCitas(); // Llamamos a la API al entrar
     }
   }, [profile, nav]);
+
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Header (se mantiene igual) */}
       <View style={styles.pickHeader}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-          onPress={() => nav.navigate('HomeServices')}
-          style={({ pressed }) => [styles.pickBackBtn, pressed ? styles.pickBackBtnPressed : null]}
-        >
+        <Pressable onPress={() => nav.navigate('HomeServices')} style={styles.pickBackBtn}>
           <Text style={styles.pickBackIcon}>‹</Text>
         </Pressable>
         <Text style={styles.pickHeaderTitle}>Agendar Médico</Text>
@@ -498,86 +702,113 @@ function GeneralAppointmentScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.appointmentContent}>
+        {/* Card del Doctor (se mantiene igual) */}
         <View style={styles.appointmentDoctorCard}>
-          <View style={styles.appointmentAvatar}>
-            <Text style={styles.appointmentAvatarText}>DR</Text>
-          </View>
+          <View style={styles.appointmentAvatar}><Text style={styles.appointmentAvatarText}>DR</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.appointmentDoctorName}>Dr. Roberto Sánchez</Text>
             <Text style={styles.appointmentDoctorMeta}>Médico General • Rural Salento</Text>
           </View>
         </View>
 
-        <Text style={styles.appointmentStepTitle}>Paso 1: Seleccione una fecha</Text>
-        <View style={styles.appointmentCalendarCard}>
-          <View style={styles.appointmentMonthRow}>
-            <View style={styles.appointmentMonthBtn}>
-              <Text style={styles.appointmentMonthBtnText}>‹</Text>
-            </View>
-            <Text style={styles.appointmentMonthTitle}>Esta semana (piloto)</Text>
-            <View style={styles.appointmentMonthBtn}>
-              <Text style={styles.appointmentMonthBtnText}>›</Text>
-            </View>
-          </View>
-          <Text style={styles.appointmentCalendarHint}>
-            En el piloto, la fecha se maneja como parte del horario seleccionado.
-          </Text>
-        </View>
+        <Text style={styles.appointmentStepTitle}>Paso 1: Disponibilidad Real</Text>
+
+    <View style={styles.appointmentCalendarCard}>
+      {/* El texto informativo puede quedarse arriba o quitarse */}
+      <Text style={styles.appointmentCalendarHint}>
+        Horarios sincronizados con Google Calendar.
+      </Text>
+
+      {/* AQUÍ INSERTAMOS EL CALENDARIO */}
+      <Calendar
+        // REEMPLAZA/AÑADE ESTA LÓGICA:
+        onDayPress={day => {
+          setSelectedDate(day.dateString);
+        }}
+        markedDates={{
+          [selectedDate]: { 
+            selected: true, 
+            disableTouchEvent: true, 
+            selectedColor: '#0056b3' 
+          }
+        }}
+        theme={{
+          todayTextColor: '#0056b3',
+          selectedDayBackgroundColor: '#0056b3',
+          arrowColor: '#0056b3',
+        }}
+      />
+    </View>
 
         <Text style={styles.appointmentStepTitle}>Paso 2: Seleccione una hora</Text>
-        <View style={styles.appointmentSlotsGrid}>
-          {slotOptions.map((s) => {
-            const selected = s.label === selectedSlot;
-            return (
-              <Pressable
-                key={s.id}
-                accessibilityRole="button"
-                accessibilityLabel={s.label}
-                onPress={() => setSelectedSlot(s.label)}
-                style={({ pressed }) => [
-                  styles.appointmentSlotBtn,
-                  selected ? styles.appointmentSlotBtnSelected : null,
-                  pressed ? styles.btnPressed : null,
-                ]}
-              >
-                <Text style={[styles.appointmentSlotText, selected ? styles.appointmentSlotTextSelected : null]}>
-                  {s.label.replace('Hoy - ', '').replace('Mañana - ', '').replace('Esta semana - ', '')}
-                </Text>
-                <Text style={[styles.appointmentSlotSubtext, selected ? styles.appointmentSlotSubtextSelected : null]}>
-                  {s.label.includes('Hoy')
-                    ? 'Hoy'
-                    : s.label.includes('Mañana')
-                      ? 'Mañana'
-                      : s.label.includes('Esta semana')
-                        ? 'Esta semana'
-                        : 'Horario'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+
+        {/* 1. Primero verificamos si ya tocó un día en el calendario */}
+        {!selectedDate ? (
+          <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
+            Seleccione un día en el calendario para ver disponibilidad.
+          </Text>
+        ) : (
+          /* 2. Si ya seleccionó fecha, ejecutamos tu lógica original */
+          loading ? (
+            <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 20 }} />
+          ) : citas.length === 0 ? (
+            <Text style={{ textAlign: 'center', marginTop: 20 }}>
+              No hay citas disponibles para el {selectedDate}.
+            </Text>
+          ) : (
+            <View style={styles.appointmentSlotsGrid}>
+              {citas.map((cita) => {
+                const selected = cita.id === selectedSlot;
+                const fechaCita = new Date(cita.start);
+                const horaFormatted = fechaCita.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                return (
+                  <Pressable
+                    key={cita.id}
+                    onPress={() => setSelectedSlot(cita.id)}
+                    style={[
+                      styles.appointmentSlotBtn,
+                      selected ? styles.appointmentSlotBtnSelected : null,
+                    ]}
+                  >
+                    <Text style={[styles.appointmentSlotText, selected ? styles.appointmentSlotTextSelected : null]}>
+                      {horaFormatted}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )
+        )}
 
         <View style={styles.appointmentInfoBox}>
           <Text style={styles.appointmentInfoIcon}>ℹ️</Text>
           <Text style={styles.appointmentInfoText}>
-            Esta cita será mediante videollamada. Asegúrese de tener buena conexión.
+            Esta cita es real y se leerá desde el calendario del doctor.
           </Text>
         </View>
       </ScrollView>
 
+      {/* Footer */}
       <View style={styles.appointmentFooter}>
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Confirmar cita"
-          onPress={() => nav.navigate('GeneralAppointmentConfirm', { slotLabel: selectedSlot })}
-          style={({ pressed }) => [styles.appointmentConfirmBtn, pressed ? styles.btnPressed : null]}
+          disabled={!selectedSlot}
+          onPress={() => {
+            const citaSeleccionada = citas.find(c => c.id === selectedSlot);
+            nav.navigate('GeneralAppointmentConfirm', { 
+              slotLabel: citaSeleccionada ? new Date(citaSeleccionada.start).toLocaleString() : '' 
+            });
+          }}
+          style={({ pressed }) => [
+            styles.appointmentConfirmBtn, 
+            !selectedSlot && { backgroundColor: '#ccc' },
+            pressed ? styles.btnPressed : null
+          ]}
         >
           <Text style={styles.appointmentConfirmText}>Confirmar Cita</Text>
           <Text style={styles.appointmentConfirmIcon}>✓</Text>
         </Pressable>
       </View>
-
-      <EmergencyFAB />
     </SafeAreaView>
   );
 }
@@ -1070,6 +1301,7 @@ function MedicalHistoryDetailScreen({ route }: { route: { params: { historyId: s
 }
 
 function EmergencyFlowScreen() {
+  
   const nav = useNavigation<Nav>();
   const [step, setStep] = useState<'confirm' | 'locating' | 'ready'>('confirm');
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -1210,6 +1442,120 @@ function EmergencyFlowScreen() {
   );
 }
 
+function SymptomReportScreen() {
+  const [symptoms, setSymptoms] = React.useState('');
+  const { profile } = usePatient(); // Usamos tu hook para obtener la cédula
+  const nav = useNavigation<Nav>();
+
+  const handleSave = () => {
+      const now = new Date();
+      const oneJan = new Date(now.getFullYear(), 0, 1);
+      const weekNumber = Math.ceil((((now.getTime() - oneJan.getTime()) / 86400000) + oneJan.getDay() + 1) / 7);
+
+      const nuevoRegistro = {
+        pacienteDoc: profile?.docNumber,
+        pacienteNombre: profile?.name, // Útil para que el doctor vea el nombre rápido
+        semana: weekNumber,
+        sintomas: symptoms,
+        fecha: now.toISOString(),
+        // IMPORTANTE:
+        especialistaId: "ID_DEL_DOCTOR", // Deberías pasarlo desde la pantalla anterior o el contexto
+        revisado: false, // Para que el doctor sepa qué tiene pendiente
+        enviadoAHitoriaClinica: false // Para evitar duplicados en la recompilación
+      };
+
+      console.log("Enviando a Google Cloud:", nuevoRegistro);
+      
+      // Aquí es donde meterás el fetch o la llamada a Firebase/Firestore
+      alert("Síntomas guardados. El especialista los revisará en la semana " + weekNumber);
+      nav.goBack();
+    };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 20 }}>
+      <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 10 }}>Reportar Síntomas</Text>
+      <Text style={{ color: '#666', marginBottom: 20 }}>Estos datos serán revisados por su doctor esta semana.</Text>
+      
+      <TextInput
+        style={{ 
+          borderWidth: 1, borderColor: '#ccc', borderRadius: 10, 
+          padding: 15, height: 150, textAlignVertical: 'top' 
+        }}
+        placeholder="Ej: He tenido dolor de cabeza constante desde el martes..."
+        multiline
+        value={symptoms}
+        onChangeText={setSymptoms}
+      />
+
+      <Pressable 
+        onPress={handleSave}
+        style={{ 
+          backgroundColor: '#007AFF', padding: 15, borderRadius: 10, 
+          marginTop: 20, alignItems: 'center' 
+        }}
+      >
+        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Enviar al Especialista</Text>
+      </Pressable>
+    </SafeAreaView>
+  );
+}
+
+const DoctorDashboardScreen = ({ route }: any) => {
+  // Recibimos los datos y la cédula desde el Login
+  const { doctorData, cedula } = route.params;
+  const [citas, setCitas] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Consulta a la colección de citas filtrando por este doctor
+    const subscriber = firestore()
+      .collection('citas')
+      .where('idDoctor', '==', cedula)
+      // .where('fecha', '==', hoy) // Opcional: filtrar solo por hoy
+      .onSnapshot(querySnapshot => {
+        const appointments: any[] = [];
+        querySnapshot.forEach(documentSnapshot => {
+          appointments.push({
+            ...documentSnapshot.data(),
+            key: documentSnapshot.id,
+          });
+        });
+        setCitas(appointments);
+        setLoading(false);
+      });
+
+    return () => subscriber();
+  }, [cedula]);
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Bienvenido, Dr. {doctorData?.nombre}</Text>
+      <Text style={styles.subtitle}>Especialidad: {doctorData?.especialidad}</Text>
+      
+      <View style={styles.statsCard}>
+        <Text style={styles.cardTitle}>Resumen de Citas</Text>
+        {loading ? (
+          <ActivityIndicator color="#2196F3" />
+        ) : (
+          <FlatList
+            data={citas}
+            keyExtractor={(item) => item.key}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No tienes citas programadas.</Text>
+            }
+            renderItem={({ item }) => (
+              <View style={styles.appointmentItem}>
+                <Text style={styles.patientName}>{item.nombrePaciente}</Text>
+                <Text style={styles.appointmentItem}>{item.hora} - {item.tipo}</Text>
+              </View>
+            )}
+          />
+        )}
+      </View>
+    </View>
+  );
+};
+
 export default function App() {
   const [profile, setProfileState] = useState<PatientProfile | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -1275,10 +1621,20 @@ export default function App() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <NavigationContainer theme={theme}>
           <StatusBar style="dark" />
-          <Stack.Navigator initialRouteName="OnboardingDocument">
+          <Stack.Navigator initialRouteName="Login">
+
+            {/* PANTALLA DE ACCESO PRINCIPAL (La que filtra Rol y Cédula) */}
+            <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+
+            {/* --- SECCIÓN DOCTORES --- */}
+            <Stack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} options={{ title: 'Panel Médico' }} />
+            {/* Aquí irán más pantallas de doctor después: Gestionar disponibilidad, ver pacientes, etc. */}
+
+            {/* --- SECCIÓN PACIENTES (Tu flujo actual) --- */}
             <Stack.Screen name="OnboardingDocument" component={OnboardingDocumentScreen} options={{ headerShown: false }} />
             <Stack.Screen name="HomeServices" component={HomeServicesScreen} options={{ headerShown: false }} />
             <Stack.Screen name="GeneralAppointment" component={GeneralAppointmentScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="SymptomReport" component={SymptomReportScreen} options={{ title: "Mis sintomas"}}/>
             <Stack.Screen name="GeneralAppointmentConfirm" component={GeneralAppointmentConfirmScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistList" component={SpecialistListScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistAppointment" component={SpecialistAppointmentScreen} options={{ headerShown: false }} />
@@ -1297,6 +1653,73 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  statsCard: { 
+    padding: 20, 
+    backgroundColor: '#fff', 
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3
+  },
+  emptyText: { textAlign: 'center', color: '#999', marginTop: 10 },
+  doctorContainer: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+  },
+  welcomeText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  idText: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  scrollContent: {
+    padding: 16,
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+    color: '#374151',
+  },
+  appointmentItem: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  patientName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  timeText: {
+    color: '#6b7280',
+  },
+  actionButton: {
+    marginTop: 20,
+    backgroundColor: '#ef4444',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
   safe: {
     flex: 1,
     backgroundColor: '#f7f7f7',
@@ -2350,5 +2773,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#92400e',
     lineHeight: 22,
+  },
+  container: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    padding: 20, 
+    backgroundColor: '#f5f5f5' 
+  },
+  buttonContainer: {
+    width: '100%' 
+  },
+  roleButton: { 
+    padding: 20, 
+    borderRadius: 12, 
+    marginBottom: 15, 
+    alignItems: 'center' 
+  },
+  inputContainer: { 
+    width: '100%' 
+  },
+  mainButton: { 
+    backgroundColor: '#333', 
+    padding: 18, 
+    borderRadius: 8, 
+    alignItems: 'center' 
+  },
+  backText: {
+    color: '#2196F3', 
+    textAlign: 'center', 
+    marginTop: 20, 
+    fontSize: 16 
   },
 });

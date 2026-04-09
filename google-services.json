@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "299384504842",
+    "project_id": "salud-digital-piloto",
+    "storage_bucket": "salud-digital-piloto.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:299384504842:android:afe1865f15946c062715f3",
+        "android_client_info": {
+          "package_name": "com.saluddigital.piloto"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuf1Embw1YJkskaOW8bo32CmbCv1wbQsk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
