@@ -3,25 +3,18 @@ import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { StatusBar } from 'expo-status-bar';
 import * as Location from 'expo-location';
 import * as Sharing from 'expo-sharing';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import firestore from '@react-native-firebase/firestore';
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAuf1Embw1YJkskaOW8bo32CmbCv1wbQsk",
-  authDomain: "salud-digital-piloto.firebaseapp.com",
-  projectId: "salud-digital-piloto",
-  storageBucket: "salud-digital-piloto.firebasestorage.app",
-  messagingSenderId: "299384504842",
-  appId: "1:299384504842:android:afe1865f15946c062715f3"
-};
-
+import { addDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, DocumentData, Query, CollectionReference, Firestore } from 'firebase/firestore';
+import { db } from './firebaseConfig.js'; // <-- IMPORTANTE: Ajusta esta ruta según dónde guardaste el archivo anterior
 
 const guardarNube = async (datos: any) => {
   try {
@@ -38,7 +31,6 @@ const guardarNube = async (datos: any) => {
   }
 };
 
-
 type DocType = 'CC' | 'CE' | 'Pasaporte';
 type PatientProfile = { 
   name: string;
@@ -47,8 +39,9 @@ type PatientProfile = {
   role: 'especialistas' | 'pacientes'; 
 };
 
-const LoginScreen = () => {
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+const LoginScreen = ({ navigation }: {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>
+}) => {
 
   useEffect(() => {
     navigation.replace('OnboardingDocument');
@@ -60,30 +53,70 @@ const LoginScreen = () => {
 };
 
 const validarAccesoLimitado = async (cedulaIngresada: string, rolSeleccionado: 'especialistas' | 'pacientes') => {
-  try {
-    // Referencia directa al documento por la cédula (ID)
-    const userRef = firestore().collection(rolSeleccionado).doc(cedulaIngresada);
-    const doc = await userRef.get();
+  const nav = useNavigation<OnboardingNavProp>();
+  if (!cedulaIngresada.trim()) {
+    Alert.alert("Error", "Por favor ingresa un número de documento.");
+    return;
+  }
 
-    if (doc.exists()) {
-      // ÉXITO: El usuario está pre-registrado
-      const datos = doc.data();
-      console.log(`Acceso concedido a ${rolSeleccionado}:`, datos?.nombre);
-      
-      // Aquí puedes guardar el estado de sesión localmente
-      Alert.alert("Acceso Exitoso", `Bienvenido ${datos?.nombre}`);
+  setLoading(true); // Asegúrate de tener este estado
+  try {
+    const cleanDoc = cedulaIngresada.trim();
+    
+    // Intento 1: Buscar por ID directo (lo que ya tenías)
+    const userRef = firestore().collection(rolSeleccionado).doc(cleanDoc);
+    const docSnapshot = await userRef.get();
+
+    let userData = null;
+
+    if (docSnapshot.exists()) {
+      userData = docSnapshot.data();
     } else {
-      // ERROR: No está en la lista permitida
-      console.log("Error: Usuario no autorizado o cédula incorrecta.");
+      // Intento 2: Buscar por campo 'cedula' dentro del documento (por si el ID es aleatorio)
+      const querySnapshot = await firestore()
+        .collection(rolSeleccionado)
+        .where('cedula', '==', cleanDoc)
+        .get();
       
+      if (!querySnapshot.empty) {
+        userData = querySnapshot.docs[0].data();
+      }
+    }
+
+    if (userData) {
+      // ÉXITO
+      console.log(`Acceso concedido a ${rolSeleccionado}:`, userData.nombre);
+      
+      // Guardamos la sesión
+      await AsyncStorage.setItem('userSession', JSON.stringify({
+        ...userData,
+        role: rolSeleccionado,
+      }));
+
+      // CAMBIO DE ESTADO PARA EL COLOR VERDE
+      setIsVerified(true); 
+
+      // REDIRECCIÓN A HOMESERVICES
+      Alert.alert("Acceso Exitoso", `Bienvenido ${userData.nombre || ''}`);
+      
+      setTimeout(() => {
+        // Usamos 'nav' o 'navigation' según como se llame tu variable de useNavigation
+        nav.replace('HomeServices' as any); 
+      }, 500);
+
+    } else {
+      // FALLO
+      setIsVerified(false);
       Alert.alert(
         "Acceso Denegado", 
-        `La cédula ${cedulaIngresada} no está registrada como ${rolSeleccionado === 'especialistas' ? 'Doctor' : 'Paciente'}.`
+        `La cédula ${cleanDoc} no está registrada en ${rolSeleccionado}.`
       );
     }
   } catch (error) {
     console.error("Error de conexión:", error);
-    Alert.alert("Error", "No se pudo conectar con la base de datos.");
+    Alert.alert("Error", "Asegúrate de tener Firestore activado y buena conexión.");
+  } finally {
+    setLoading(false);
   }
 };
 
@@ -98,8 +131,10 @@ LocaleConfig.defaultLocale = 'es';
 
 type RootStackParamList = {
   Login: undefined;
+  DoctorScreen: undefined;
   DoctorDashboard: { doctorData: any; cedula: string };
   OnboardingDocument: undefined;
+  MainTabs: undefined;
   HomeServices: { patientData: any; cedula: string } | undefined;
   GeneralAppointment: undefined;
   SymptomReport: undefined;
@@ -125,38 +160,6 @@ type PatientContextValue = {
 };
 
 const PatientContext = createContext<PatientContextValue | null>(null);
-
-const DoctorScreen = ({ route, navigation }: any) => {
-  // Asumiendo que pasas la cédula o el nombre por parámetros
-  const { idDoctor } = route.params || { idDoctor: 'No identificado' };
-
-  return (
-    <SafeAreaView style={styles.doctorContainer}>
-      <View style={styles.header}>
-        <Text style={styles.welcomeText}>Panel del Especialista</Text>
-        <Text style={styles.idText}>ID: {idDoctor}</Text>
-      </View>
-
-      <ScrollView style={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Próximas Citas</Text>
-          <View style={styles.appointmentItem}>
-            <Text style={styles.patientName}>Paciente: Juan Pérez</Text>
-            <Text style={styles.timeText}>10:30 AM - Consulta General</Text>
-          </View>
-          {/* Aquí mapearías las citas desde Firebase más adelante */}
-        </View>
-
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.buttonText}>Cerrar Sesión</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </SafeAreaView>
-  );
-};
 
 function usePatient() {
   const ctx = useContext(PatientContext);
@@ -365,54 +368,79 @@ function ScreenChrome({
   );
 }
 
-function OnboardingDocumentScreen() {
-  const nav = useNavigation<Nav>();
-  const { setProfile, clearProfile } = usePatient();
-  const [docType, setDocType] = useState<DocType>('CC');
+type OnboardingNavProp = NativeStackNavigationProp<RootStackParamList, 'OnboardingDocument'>;
+
+export function OnboardingDocumentScreen() {
+  const nav = useNavigation<any>();
   const [docNumber, setDocNumber] = useState('');
-  const [userRole, setUserRole] = useState<'especialistas' | 'pacientes' | null>(null); // Nuevo estado
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false); // Estado para feedback visual
+  const [userRole, setUserRole] = useState<'especialistas' | 'pacientes' | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  
+  // NUEVO ESTADO: Para controlar el mensaje de error visual
+  const [errorMessage, setErrorMessage] = useState<string | null>(null); 
+  
+  type DocType = 'CC' | 'TI' | 'CE' | 'PAS';
+  const [docType, setDocType] = useState<DocType>('CC');
 
-  const canContinue = docNumber.trim().length === 10 && userRole !== null;
+  const docTypeOptions = [
+    { id: 'CC', label: 'Cédula de Ciudadanía' },
+    { id: 'TI', label: 'Tarjeta de Identidad' },
+    { id: 'CE', label: 'Cédula de Extranjería' },
+    { id: 'PAS', label: 'Pasaporte' },
+  ];
 
-  // FUNCIÓN DE DIRECCIONAMIENTO Y VALIDACIÓN
   const handleAuth = async () => {
-    if (!canContinue) return;
-    
+    if (!userRole) {
+      Alert.alert("Aviso", "Selecciona si eres Doctor o Paciente.");
+      return;
+    }
+
+    if (docNumber.length < 10) {
+      Alert.alert("Aviso", "La cédula debe tener 10 dígitos.");
+      return;
+    }
+
     setLoading(true);
-    setError(null);
+    setErrorMessage(null); // Limpiamos errores previos al intentar de nuevo
 
     try {
-      // 1. Buscamos directamente en la colección elegida por el ID (cédula)
-      const userDoc = await firestore()
-        .collection(userRole!)
-        .doc(docNumber.trim())
-        .get();
+      const cleanDoc = docNumber.trim();
+      
+      const q = query(collection(db, userRole), where('cedula', '==', cleanDoc));
+      const querySnapshot = await getDocs(q);
 
-      if (userDoc.exists()) {
-        const data = userDoc.data();
+      if (!querySnapshot.empty) {
+        setIsVerified(true);
+        setErrorMessage(null); // Confirmamos que no hay error
         
-        // 2. Guardamos en el perfil global
-        setProfile({
-          docType,
-          docNumber: docNumber.trim(),
-          name: data?.nombre || '',
-          role: userRole // Puedes extender tu interfaz de perfil
-        });
+        const userDoc = querySnapshot.docs[0];
+        const userData = userDoc.data();
 
-        // 3. DIRECCIONAMIENTO SEGÚN ROL
-        if (userRole === 'especialistas') {
-          nav.reset({ index: 0, routes: [{ name: 'DoctorDashboard' }] });
-        } else {
-          nav.reset({ index: 0, routes: [{ name: 'HomeServices' }] });
-        }
+        await AsyncStorage.setItem('userSession', JSON.stringify({
+          ...userData,
+          role: userRole,
+          id: userDoc.id
+        }));
+
+        Alert.alert("Éxito", `Bienvenido ${userData.nombre || 'Usuario'}`);
+        
+        setTimeout(() => {
+          if (userRole === 'pacientes') {
+            nav.replace('HomeServices'); 
+          } else {
+            nav.replace('DoctorDashboard'); 
+          }
+        }, 500);
+
       } else {
-        setError(`No se encontró un ${userRole === 'especialistas' ? 'Doctor' : 'Paciente'} con esa cédula.`);
+        // SI NO EXISTE: Quitamos el verde y activamos el texto rojo
+        setIsVerified(false);
+        setErrorMessage('Documento no válido');
       }
-    } catch (e) {
-      console.error(e);
-      setError('Error de conexión con el servidor.');
+    } catch (error: any) {
+      console.error("Error de conexión:", error);
+      Alert.alert("Error de Firebase", error.message);
     } finally {
       setLoading(false);
     }
@@ -420,12 +448,12 @@ function OnboardingDocumentScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={styles.screen} // Usa tus estilos aquí
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
     >
       <ScreenChrome title="Identificación" subtitle="">
         <ScrollView contentContainerStyle={styles.idContent}>
+          
           <View style={styles.idEmergencyBox}>
             <Text style={styles.idEmergencyIcon}>!</Text>
             <Text style={styles.idEmergencyText}>¿Es una emergencia? Llame al 911.</Text>
@@ -434,6 +462,7 @@ function OnboardingDocumentScreen() {
           <Text style={styles.idWelcomeTitle}>Acceso al sistema</Text>
           <Text style={styles.idWelcomeSubtitle}>Seleccione su perfil e ingrese su documento.</Text>
 
+          {/* Roles */}
           <View style={styles.idFieldGroup}>
             <Text style={styles.idFieldLabel}>Tipo de Usuario</Text>
             <View style={styles.docGrid}>
@@ -452,26 +481,21 @@ function OnboardingDocumentScreen() {
             </View>
           </View>
 
-          <Text style={styles.idWelcomeSubtitle}>
-            Para comenzar su consulta médica, por favor ingrese los datos de su documento de identidad.
-          </Text>
-
+          {/* Tipos de Documento */}
           <View style={styles.idFieldGroup}>
             <Text style={styles.idFieldLabel}>Tipo de documento</Text>
             <View style={styles.docGrid}>
               {docTypeOptions.map((opt) => {
-                const selected = opt.id === docType;
+                const selected = opt.id === docType; 
                 return (
                   <Pressable
                     key={opt.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={opt.label}
-                    onPress={() => setDocType(opt.id)}
-                    style={({ pressed }) => [
-                      styles.docOption,
-                      selected ? styles.docOptionSelected : null,
-                      pressed ? styles.btnPressed : null,
-                    ]}
+                    onPress={() => {
+                      setDocType(opt.id as DocType);
+                      setIsVerified(false);
+                      setErrorMessage(null); // Limpiamos el error si cambian de tipo
+                    }}
+                    style={[styles.docOption, selected ? styles.docOptionSelected : null]}
                   >
                     <Text style={[styles.docOptionText, selected ? styles.docOptionTextSelected : null]}>
                       {opt.label}
@@ -482,56 +506,48 @@ function OnboardingDocumentScreen() {
             </View>
           </View>
 
+          {/* Input de Número */}
           <View style={styles.idFieldGroup}>
             <Text style={styles.idFieldLabel}>Número de documento</Text>
             <TextInput
               value={docNumber}
               onChangeText={(t) => {
                 setDocNumber(t.replace(/[^\d]/g, ''));
-                setError(null);
+                setIsVerified(false);
+                setErrorMessage(null); // Al escribir de nuevo, se quita el color rojo
               }}
               keyboardType="number-pad"
               maxLength={10}
               placeholder="Ej: 1234567890"
-              style={[styles.idNumberInput, canContinue && { borderColor: '#0b764a' }]}
+              placeholderTextColor="#9ca3af" // <-- ESTO HACE EL TEXTO MÁS CLARITO
+              style={[
+                styles.idNumberInput, 
+                isVerified && { borderColor: '#0b764a', borderWidth: 2 }, // Borde Verde
+                errorMessage ? { borderColor: '#dc2626', borderWidth: 2 } : null // <-- Borde Rojo
+              ]}
             />
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            
+            {/* <-- MENSAJE DE ERROR ROJO DEBAJO DEL INPUT --> */}
+            {errorMessage ? (
+              <Text style={{ color: '#dc2626', fontSize: 14, marginTop: 6, fontWeight: '500' }}>
+                {errorMessage}
+              </Text>
+            ) : null}
+            
           </View>
 
-          <View style={{ height: 16 }} />
+          {/* Botón Principal */}
           <LargePrimaryButton
             label={loading ? "Verificando..." : "Continuar"}
-            disabled={!canContinue || loading}
-            onPress={handleAuth} // Llamamos a la función asíncrona
+            onPress={handleAuth}
+            disabled={loading}
           />
-
-          <LargePrimaryButton
-            label="Borrar cédula guardada"
-            tone="muted"
-            onPress={() => {
-              clearProfile();
-              setDocNumber('');
-              setError(null);
-            }}
-          />
-
-          <Pressable
-            onPress={() => {
-              // En el futuro aquí podría ir una ayuda guiada.
-            }}
-            style={styles.idHelpButton}
-          >
-            <Text style={styles.idHelpText}>¿Necesita ayuda para ingresar?</Text>
-          </Pressable>
 
           <View style={styles.idSecurityRow}>
             <Text style={styles.idSecurityIcon}>🔒</Text>
             <Text style={styles.idSecurityText}>Sus datos están protegidos y seguros.</Text>
           </View>
 
-          <Text style={styles.disclaimer}>
-            En esta versión piloto, los datos se usan como ejemplo para probar la experiencia.
-          </Text>
         </ScrollView>
       </ScreenChrome>
     </KeyboardAvoidingView>
@@ -1442,119 +1458,371 @@ function EmergencyFlowScreen() {
   );
 }
 
-function SymptomReportScreen() {
-  const [symptoms, setSymptoms] = React.useState('');
-  const { profile } = usePatient(); // Usamos tu hook para obtener la cédula
-  const nav = useNavigation<Nav>();
+export function SymptomReportScreen() {
+  const [symptoms, setSymptoms] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  
+  // ESTADO PARA LA SESIÓN REAL
+  const [userProfile, setUserProfile] = useState<{ docNumber: string, name: string } | null>(null);
 
-  const handleSave = () => {
+  const route = useRoute<any>();
+  const nav = useNavigation<any>();
+  const { especialistaId } = route.params || {};
+
+  // 1. CARGAR LOS DATOS REALES AL INICIAR LA PANTALLA
+  useEffect(() => {
+    const getSession = async () => {
+      try {
+        const sessionString = await AsyncStorage.getItem('userSession');
+        if (sessionString) {
+          const session = JSON.parse(sessionString);
+          // Mapeamos los campos según como los guardaste en el Login
+          setUserProfile({
+            docNumber: session.cedula || session.docNumber, 
+            name: session.nombre || session.name
+          });
+        }
+      } catch (e) {
+        console.error("Error cargando sesión", e);
+      }
+    };
+    getSession();
+  }, []);
+
+  const handleSave = async () => {
+    setStatusMessage(null);
+
+    // Validación: Si no hay sesión, no puede enviar nada
+    if (!userProfile) {
+      setStatusMessage({ type: 'error', text: 'Error: No se encontró tu sesión de usuario.' });
+      return;
+    }
+
+    if (!symptoms.trim()) {
+      setStatusMessage({ type: 'error', text: 'Escribe tus síntomas antes de enviar.' });
+      return;
+    }
+
+    setLoading(true);
+    try {
       const now = new Date();
       const oneJan = new Date(now.getFullYear(), 0, 1);
       const weekNumber = Math.ceil((((now.getTime() - oneJan.getTime()) / 86400000) + oneJan.getDay() + 1) / 7);
 
+      // 2. USAMOS LOS DATOS REALES DEL userProfile
       const nuevoRegistro = {
-        pacienteDoc: profile?.docNumber,
-        pacienteNombre: profile?.name, // Útil para que el doctor vea el nombre rápido
+        pacienteDoc: String(userProfile.docNumber), // Cédula real del login
+        pacienteNombre: userProfile.name,          // Nombre real del login
         semana: weekNumber,
-        sintomas: symptoms,
+        sintomas: symptoms.trim(),
         fecha: now.toISOString(),
-        // IMPORTANTE:
-        especialistaId: "ID_DEL_DOCTOR", // Deberías pasarlo desde la pantalla anterior o el contexto
-        revisado: false, // Para que el doctor sepa qué tiene pendiente
-        enviadoAHitoriaClinica: false // Para evitar duplicados en la recompilación
+        especialistaId: String(especialistaId || "1234567890"), 
+        revisado: false, 
+        enviadoAHistoriaClinica: false 
       };
-
-      console.log("Enviando a Google Cloud:", nuevoRegistro);
       
-      // Aquí es donde meterás el fetch o la llamada a Firebase/Firestore
-      alert("Síntomas guardados. El especialista los revisará en la semana " + weekNumber);
-      nav.goBack();
-    };
+      await addDoc(collection(db, 'reportes_sintomas'), nuevoRegistro);
+
+      setStatusMessage({ type: 'success', text: '¡Síntomas enviados con éxito!' });
+      setSymptoms('');
+
+      setTimeout(() => nav.goBack(), 2000);
+
+    } catch (error: any) {
+      setStatusMessage({ type: 'error', text: `Error: ${error.message}` });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', padding: 20 }}>
-      <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 10 }}>Reportar Síntomas</Text>
-      <Text style={{ color: '#666', marginBottom: 20 }}>Estos datos serán revisados por su doctor esta semana.</Text>
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Reportar Síntomas</Text>
       
+      {/* Mostramos a quién pertenece el reporte para confirmar que no es inventado */}
+      <Text style={styles.sessionInfo}>
+        Reportando como: {userProfile ? userProfile.name : 'Cargando sesión...'}
+      </Text>
+
+      {statusMessage && (
+        <View style={[styles.statusBox, statusMessage.type === 'success' ? styles.statusSuccess : styles.statusError]}>
+          <Text style={[styles.statusText, statusMessage.type === 'success' ? styles.statusTextSuccess : styles.statusTextError]}>
+            {statusMessage.text}
+          </Text>
+        </View>
+      )}
+
       <TextInput
-        style={{ 
-          borderWidth: 1, borderColor: '#ccc', borderRadius: 10, 
-          padding: 15, height: 150, textAlignVertical: 'top' 
-        }}
-        placeholder="Ej: He tenido dolor de cabeza constante desde el martes..."
+        style={styles.input}
+        placeholder="¿Cómo te sientes hoy?"
         multiline
         value={symptoms}
         onChangeText={setSymptoms}
+        editable={!loading}
       />
 
-      <Pressable 
-        onPress={handleSave}
-        style={{ 
-          backgroundColor: '#007AFF', padding: 15, borderRadius: 10, 
-          marginTop: 20, alignItems: 'center' 
-        }}
-      >
-        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Enviar al Especialista</Text>
+      <Pressable onPress={handleSave} disabled={loading} style={styles.button}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Enviar Reporte Real</Text>}
       </Pressable>
     </SafeAreaView>
   );
 }
 
-const DoctorDashboardScreen = ({ route }: any) => {
-  // Recibimos los datos y la cédula desde el Login
-  const { doctorData, cedula } = route.params;
-  const [citas, setCitas] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export function DoctorDashboardScreen() {
+  const [activeTab, setActiveTab] = useState<'agenda' | 'sintomas'>('sintomas');
+  const [doctorData, setDoctorData] = useState<any>(null);
 
-  useEffect(() => {
-    // Consulta a la colección de citas filtrando por este doctor
-    const subscriber = firestore()
-      .collection('citas')
-      .where('idDoctor', '==', cedula)
-      // .where('fecha', '==', hoy) // Opcional: filtrar solo por hoy
-      .onSnapshot(querySnapshot => {
-        const appointments: any[] = [];
-        querySnapshot.forEach(documentSnapshot => {
-          appointments.push({
-            ...documentSnapshot.data(),
-            key: documentSnapshot.id,
-          });
-        });
-        setCitas(appointments);
-        setLoading(false);
+  // Estados de Síntomas
+  const [allReportes, setAllReportes] = useState<any[]>([]);
+  const [filteredReportes, setFilteredReportes] = useState<any[]>([]);
+  const [loadingSintomas, setLoadingSintomas] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showOnlyPending, setShowOnlyPending] = useState(true);
+
+  // Estados de Agenda
+  const [agenda, setAgenda] = useState<any[]>([]);
+  const [loadingAgenda, setLoadingAgenda] = useState(true);
+
+  // =====================================================================
+  // 1. FUNCIÓN DE CARGA DE SÍNTOMAS (Segura y Filtrada)
+  // =====================================================================
+  const cargarSintomas = async (cedula: string) => {
+    setLoadingSintomas(true);
+    try {
+      const cedulaLimpia = String(cedula).trim();
+      
+      // La "válvula" está puesta de nuevo: solo los de este doctor
+      const q = query(
+        collection(db, 'reportes_sintomas'),
+        where('especialistaId', '==', cedulaLimpia)
+      );
+
+      const snapshot = await getDocs(q);
+      const docs = snapshot.docs.map((d: any) => ({ ...d.data(), id: d.id }));
+      setAllReportes(docs);
+      
+    } catch (error: any) {
+      console.error("🚨 Error de Firebase:", error.message);
+      Alert.alert("Error", "No se pudieron cargar los síntomas.");
+    } finally {
+      setLoadingSintomas(false);
+    }
+  };
+
+  // =====================================================================
+  // 2. FUNCIÓN DE CARGA DE AGENDA
+  // =====================================================================
+  const cargarAgendaRender = async (cedulaDoctor: string) => {
+    setLoadingAgenda(true);
+    try {
+      // 1. Intentamos leer desde el backend
+      const response = await fetch('https://salud-api-speedy.onrender.com/api/citas');
+      
+      if (!response.ok) {
+         throw new Error("El backend devolvió error: " + response.status);
+      }
+
+      const data = await response.json();
+      
+      // 2. Mapeamos la respuesta al formato visual porque tu backend nos está
+      // enviando "title" y "start", pero esta pantalla esperaba "fecha", "hora" y "nombrePaciente".
+      const misCitas = data.map((evento: any) => {
+        const fechaObj = new Date(evento.start);
+        return {
+          id: evento.id,
+          idDoctor: cedulaDoctor, 
+          fecha: fechaObj.toLocaleDateString('es-ES', { weekday: 'short', month: 'short', day: 'numeric' }),
+          hora: fechaObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+          nombrePaciente: evento.title || 'Paciente sin nombre',
+          tipo: 'Consulta Calendario'
+        };
       });
 
-    return () => subscriber();
-  }, [cedula]);
+      setAgenda(misCitas);
+    } catch (error) {
+      console.error("Error cargando de API Render:", error);
+      // Fallback para no dejar la vista vacía si sigue fallando el servidor
+      setAgenda([
+        { id: '1', idDoctor: cedulaDoctor, fecha: 'Fallback Server Down', hora: '--:--', nombrePaciente: 'Simulación de prueba', tipo: 'Backend no conectado' },
+      ]);
+    } finally {
+      setLoadingAgenda(false);
+    }
+  };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Bienvenido, Dr. {doctorData?.nombre}</Text>
-      <Text style={styles.subtitle}>Especialidad: {doctorData?.especialidad}</Text>
-      
-      <View style={styles.statsCard}>
-        <Text style={styles.cardTitle}>Resumen de Citas</Text>
-        {loading ? (
-          <ActivityIndicator color="#2196F3" />
-        ) : (
-          <FlatList
-            data={citas}
-            keyExtractor={(item) => item.key}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No tienes citas programadas.</Text>
-            }
-            renderItem={({ item }) => (
-              <View style={styles.appointmentItem}>
-                <Text style={styles.patientName}>{item.nombrePaciente}</Text>
-                <Text style={styles.appointmentItem}>{item.hora} - {item.tipo}</Text>
-              </View>
-            )}
-          />
-        )}
+  // =====================================================================
+  // 3. INICIO DE LA PANTALLA
+  // =====================================================================
+  useEffect(() => {
+    const initialize = async () => {
+      try {
+        const sessionString = await AsyncStorage.getItem('userSession');
+        if (!sessionString) return; 
+        
+        const session = JSON.parse(sessionString);
+        setDoctorData(session);
+
+        await cargarSintomas(session.cedula);
+        cargarAgendaRender(session.cedula);
+
+      } catch (error) {
+        console.error("Error crítico:", error);
+      }
+    };
+    initialize();
+  }, []);
+
+  // =====================================================================
+  // 4. LÓGICA DE FILTROS LOCALES (Buscador y Botones)
+  // =====================================================================
+  useEffect(() => {
+    let result = allReportes;
+    if (showOnlyPending) {
+      result = result.filter(r => r.revisado === false);
+    }
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      result = result.filter(r => 
+        r.pacienteNombre?.toLowerCase().includes(lowerQuery) || 
+        String(r.pacienteDoc).includes(lowerQuery)
+      );
+    }
+    setFilteredReportes(result);
+  }, [searchQuery, showOnlyPending, allReportes]);
+
+  const toggleStatus = async (id: string, currentStatus: boolean) => {
+    try {
+      // 1. Agregamos 'as any' para apagar la alarma estricta de TypeScript
+      const docRef = doc(db, 'reportes_sintomas', id) as any;
+
+      // 2. Enviamos el cambio
+      await setDoc(docRef, { revisado: !currentStatus }, { merge: true });
+
+      // 3. Actualización Optimista (Local)
+      const nuevaLista = allReportes.map(reporte => {
+        if (reporte.id === id) {
+          return { ...reporte, revisado: !currentStatus };
+        }
+        return reporte;
+      });
+
+      // 4. Redibujamos la tabla
+      setAllReportes(nuevaLista);
+      console.log("✅ Estado actualizado en la nube y en la pantalla");
+
+    } catch (e: any) {
+      console.error("🚨 Error al actualizar:", e.message);
+      Alert.alert("Error", "No se pudo actualizar el estado.");
+    }
+  };
+
+  // ================= RENDERIZADOS =================
+  const renderAgenda = () => (
+    <View style={styles.tabContent}>
+      <View style={styles.tabHeaderRow}>
+        <Text style={styles.cardTitle}>Mi Calendario General</Text>
+        <TouchableOpacity onPress={() => cargarAgendaRender(doctorData?.cedula)} style={styles.refreshBtn}>
+          <Text style={styles.refreshText}>↻ Actualizar</Text>
+        </TouchableOpacity>
       </View>
+
+      <View style={styles.calendarInfoBox}>
+        <Text style={styles.calendarInfoText}>
+          Las citas están conectadas al calendario general de la clínica vía Google Service Accounts. Se obtienen automáticamente.
+        </Text>
+      </View>
+      <View style={{height: 15}}/>
+
+      {loadingAgenda ? (
+        <ActivityIndicator size="large" color="#007AFF" style={{marginTop: 50}} />
+      ) : (
+        <FlatList
+          data={agenda}
+          keyExtractor={(item, index) => item.id ? String(item.id) : String(index)}
+          ListEmptyComponent={<Text style={styles.empty}>No tienes citas programadas.</Text>}
+          renderItem={({ item }) => (
+            <View style={styles.agendaCard}>
+              <Text style={styles.agendaTime}>{item.fecha} | {item.hora}</Text>
+              <Text style={styles.agendaPatient}>{item.nombrePaciente || 'Paciente Anónimo'}</Text>
+              <Text style={styles.agendaType}>{item.tipo || 'Consulta General'}</Text>
+            </View>
+          )}
+        />
+      )}
     </View>
   );
-};
+
+  const renderSintomas = () => (
+    <View style={styles.tabContent}>
+      {/* Buscador y Filtros */}
+      <View style={styles.searchContainer}>
+        <View style={styles.tabHeaderRow}>
+            <TextInput 
+            style={styles.searchInput}
+            placeholder="Buscar paciente..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            />
+            <TouchableOpacity onPress={() => cargarSintomas(doctorData?.cedula)} style={[styles.refreshBtn, {marginLeft: 10}]}>
+                <Text style={styles.refreshText}>↻</Text>
+            </TouchableOpacity>
+        </View>
+
+        <View style={styles.filterRow}>
+          <TouchableOpacity style={[styles.filterChip, showOnlyPending && styles.filterChipActive]} onPress={() => setShowOnlyPending(true)}>
+            <Text style={showOnlyPending ? styles.chipTextActive : styles.chipText}>Pendientes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.filterChip, !showOnlyPending && styles.filterChipActive]} onPress={() => setShowOnlyPending(false)}>
+            <Text style={!showOnlyPending ? styles.chipTextActive : styles.chipText}>Todos</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {loadingSintomas ? (
+        <ActivityIndicator size="large" color="#007AFF" style={{marginTop: 50}} />
+      ) : (
+        <FlatList
+          data={filteredReportes}
+          keyExtractor={(item) => item.id}
+          ListEmptyComponent={<Text style={styles.empty}>No hay reportes que coincidan con tu búsqueda.</Text>}
+          renderItem={({ item }) => (
+            <View style={[styles.row, item.revisado && styles.rowRevisado]}>
+              <View style={styles.rowInfo}>
+                <Text style={styles.rowName}>{item.pacienteNombre}</Text>
+                <Text style={styles.rowDoc}>Cédula Paciente: {item.pacienteDoc}</Text>
+                <Text style={styles.rowSymptom} numberOfLines={2}>{item.sintomas}</Text>
+              </View>
+              <TouchableOpacity style={[styles.actionBtn, item.revisado ? styles.btnRevisado : styles.btnPendiente]} onPress={() => toggleStatus(item.id, item.revisado)}>
+                <Text style={styles.btnText}>{item.revisado ? "✓" : "!"}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        />
+      )}
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Panel del Especialista</Text>
+        <Text style={styles.doctorName}>Dr. {doctorData?.nombre || 'Cargando...'}</Text>
+      </View>
+
+      <View style={styles.tabSelector}>
+        <TouchableOpacity style={[styles.tabButton, activeTab === 'agenda' && styles.tabButtonActive]} onPress={() => setActiveTab('agenda')}>
+          <Text style={[styles.tabText, activeTab === 'agenda' && styles.tabTextActive]}>📅 Calendario</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tabButton, activeTab === 'sintomas' && styles.tabButtonActive]} onPress={() => setActiveTab('sintomas')}>
+          <Text style={[styles.tabText, activeTab === 'sintomas' && styles.tabTextActive]}>🏥 Síntomas</Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'agenda' ? renderAgenda() : renderSintomas()}
+    </SafeAreaView>
+  );
+}
 
 export default function App() {
   const [profile, setProfileState] = useState<PatientProfile | null>(null);
@@ -1652,7 +1920,74 @@ export default function App() {
   );
 }
 
+function setLoading(arg0: boolean) {}
+function setIsVerified(arg0: boolean) {}
+
 const styles = StyleSheet.create({
+  doctorName: { color: '#059669', fontSize: 16, fontWeight: '500', marginTop: 4 },
+  empty: { textAlign: 'center', marginTop: 50, color: '#94a3b8', fontStyle: 'italic' },
+  tabHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15 },
+  refreshBtn: { backgroundColor: '#e0f2fe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  refreshText: { color: '#0284c7', fontWeight: 'bold', fontSize: 12 },
+  agendaCard: { backgroundColor: '#fff', padding: 15, marginHorizontal: 15, marginBottom: 10, borderRadius: 10, borderLeftWidth: 5, borderLeftColor: '#0ea5e9', elevation: 1 },
+  agendaTime: { color: '#0ea5e9', fontWeight: 'bold', marginBottom: 5 },
+  agendaPatient: { fontSize: 16, fontWeight: 'bold', color: '#1e293b' },
+  agendaType: { color: '#64748b', fontSize: 14, marginTop: 5 },
+  searchContainer: { padding: 15, backgroundColor: '#fff', marginBottom: 5 },
+  searchInput: { backgroundColor: '#f1f5f9', padding: 12, borderRadius: 8, fontSize: 16, marginBottom: 10 },
+  filterRow: { flexDirection: 'row', gap: 10 },
+  filterChip: { paddingHorizontal: 15, paddingVertical: 6, borderRadius: 20, backgroundColor: '#e2e8f0' },
+  filterChipActive: { backgroundColor: '#3b82f6' },
+  chipText: { color: '#64748b', fontWeight: '500' },
+  chipTextActive: { color: '#fff', fontWeight: 'bold' },
+  row: { flexDirection: 'row', backgroundColor: '#fff', padding: 15, marginHorizontal: 10, marginBottom: 8, borderRadius: 12, alignItems: 'center', elevation: 1 },
+  rowRevisado: { opacity: 0.6, backgroundColor: '#f1f5f9' },
+  rowInfo: { flex: 1 },
+  rowName: { fontSize: 16, fontWeight: 'bold', color: '#1e293b' },
+  rowDoc: { fontSize: 12, color: '#64748b' },
+  rowSymptom: { fontSize: 14, color: '#475569', marginTop: 4 },
+  actionBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  btnPendiente: { backgroundColor: '#fee2e2' },
+  btnRevisado: { backgroundColor: '#dcfce7' },
+  tabSelector: { flexDirection: 'row', backgroundColor: 'white', paddingHorizontal: 10, paddingBottom: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 },
+  tabButton: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabButtonActive: { borderBottomColor: '#007AFF' },
+  tabText: { fontSize: 16, color: '#6b7280', fontWeight: '500' },
+  tabTextActive: { color: '#007AFF', fontWeight: 'bold' },
+
+  // Contenedor principal de cada pestaña
+  tabContent: { flex: 1, padding: 20 },
+  calendarInfoBox: { backgroundColor: '#e0f2fe', padding: 15, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#bae6fd' },
+  calendarInfoText: { color: '#0369a1', fontSize: 14, lineHeight: 20 },
+  syncButton: { backgroundColor: '#4285F4', padding: 15, borderRadius: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+  syncButtonDisabled: { backgroundColor: '#9ca3af' },
+  syncButtonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  upcomingAppointmentsBox: { flex: 1, backgroundColor: 'white', marginTop: 20, borderRadius: 10, borderWidth: 1, borderColor: '#e5e7eb' },
+  sessionInfo: { 
+    fontSize: 14, 
+    color: '#059669', 
+    marginBottom: 15, 
+    fontWeight: '500' 
+  },
+  statusBox: { padding: 12, borderRadius: 8, marginBottom: 15 },
+  statusSuccess: { backgroundColor: '#dcfce7', borderWidth: 1, borderColor: '#bbf7d0' },
+  statusError: { backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' },
+  statusText: { fontWeight: '600', textAlign: 'center' },
+  statusTextSuccess: { color: '#166534' },
+  statusTextError: { color: '#991b1b' },
+  characterCount: { textAlign: 'right', color: '#9ca3af', fontSize: 12, marginTop: 5, marginRight: 5 },
+  characterCountLimit: { color: '#dc2626', fontWeight: 'bold' }, // Se pone rojo si llega al límite
+  button: { backgroundColor: '#007AFF', padding: 15, borderRadius: 10, marginTop: 20, alignItems: 'center' },
+  buttonLoading: { backgroundColor: '#93c5fd' },
+  inputDisabled: { backgroundColor: '#f3f4f6', color: '#9ca3af' },
+  reportCard: { backgroundColor: '#fef3c7', padding: 15, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: '#fde68a' },
+  reportHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  weekBadge: { backgroundColor: '#f59e0b', color: 'white', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, fontSize: 12, fontWeight: 'bold' },
+  symptomsText: { color: '#78350f', fontSize: 15, fontStyle: 'italic', marginBottom: 12 },
+  
+  // Botón de revisar
+  checkButton: { backgroundColor: '#059669', padding: 10, borderRadius: 6, alignItems: 'center' },
+  checkButtonText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
   statsCard: { 
     padding: 20, 
     backgroundColor: '#fff', 
