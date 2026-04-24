@@ -8,7 +8,7 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { styles } from '../theme/globalStyles';
 import { usePatient } from '../context/PatientContext';
 import { Nav } from '../config/types';
-import { LargePrimaryButton, ScreenChrome, EmergencyFAB } from '../components/SharedComponents';
+import { LargePrimaryButton, ScreenChrome, EmergencyFAB, AppHeader } from '../components/SharedComponents';
 import { exams } from '../utils/mockData';
 
 function formatDate(iso: string) {
@@ -65,18 +65,11 @@ export function ExamsListScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.resultsHeader}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-          onPress={() => nav.navigate('HomeServices')}
-          style={({ pressed }) => [styles.resultsHeaderBtn, pressed ? styles.pickBackBtnPressed : null]}
-        >
-          <Text style={styles.resultsHeaderBtnText}>‹</Text>
-        </Pressable>
-        <Text style={styles.resultsHeaderTitle}>Resultados</Text>
-        <View style={styles.resultsHeaderBtn} />
-      </View>
+      <AppHeader
+        title="Resultados"
+        showBack={true}
+        onBack={() => nav.navigate('HomeServices')}
+      />
 
       <ScrollView contentContainerStyle={styles.resultsContent}>
         {loading ? (
@@ -205,18 +198,11 @@ export function ExamDetailScreen({ route }: { route: { params: { examId: string 
   if (!exam) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.resultsHeader}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Volver"
-            onPress={() => nav.navigate('ExamsList')}
-            style={({ pressed }) => [styles.resultsHeaderBtn, pressed ? styles.pickBackBtnPressed : null]}
-          >
-            <Text style={styles.resultsHeaderBtnText}>‹</Text>
-          </Pressable>
-          <Text style={styles.resultsHeaderTitle}>Examen</Text>
-          <View style={styles.resultsHeaderBtn} />
-        </View>
+        <AppHeader
+          title="Examen"
+          showBack={true}
+          onBack={() => nav.navigate('ExamsList')}
+        />
         <ScrollView contentContainerStyle={styles.resultsContent}>
           <View style={styles.rowCard}>
             <Text style={styles.rowTitle}>Examen no encontrado</Text>
@@ -229,18 +215,11 @@ export function ExamDetailScreen({ route }: { route: { params: { examId: string 
   }
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.resultsHeader}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-          onPress={() => nav.navigate('ExamsList')}
-          style={({ pressed }) => [styles.resultsHeaderBtn, pressed ? styles.pickBackBtnPressed : null]}
-        >
-          <Text style={styles.resultsHeaderBtnText}>‹</Text>
-        </Pressable>
-        <Text style={styles.resultsHeaderTitle}>Detalle</Text>
-        <View style={styles.resultsHeaderBtn} />
-      </View>
+      <AppHeader
+        title="Detalle"
+        showBack={true}
+        onBack={() => nav.navigate('ExamsList')}
+      />
 
       <ScrollView contentContainerStyle={styles.resultsDetailContent}>
         <View style={styles.resultsDetailCard}>
@@ -299,18 +278,11 @@ export function ExamResultViewerScreen({ route }: { route: { params: { examId: s
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.resultsHeader}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-          onPress={() => nav.goBack()}
-          style={({ pressed }) => [styles.resultsHeaderBtn, pressed ? styles.pickBackBtnPressed : null]}
-        >
-          <Text style={styles.resultsHeaderBtnText}>‹</Text>
-        </Pressable>
-        <Text style={styles.resultsHeaderTitle}>Resultado</Text>
-        <View style={styles.resultsHeaderBtn} />
-      </View>
+      <AppHeader
+        title="Resultado"
+        showBack={true}
+        onBack={() => nav.goBack()}
+      />
 
       <ScrollView contentContainerStyle={styles.resultsViewerContent}>
         <View style={styles.documentMock}>

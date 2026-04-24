@@ -1,4 +1,4 @@
-﻿import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 export const styles = StyleSheet.create({
   doctorName: { color: '#059669', fontSize: 16, fontWeight: '500', marginTop: 4 },
   empty: { textAlign: 'center', marginTop: 50, color: '#94a3b8', fontStyle: 'italic' },
@@ -1223,5 +1223,43 @@ export const styles = StyleSheet.create({
     color: '#4b5563',
     marginBottom: 8,
     fontWeight: '600',
+  },
+  tmContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  tmTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#1e293b',
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155'
+  },
+  tmTitle: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  tmSubtitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 2
+  },
+  tmEndCallBtn: {
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  tmEndCallText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14
   }
 });

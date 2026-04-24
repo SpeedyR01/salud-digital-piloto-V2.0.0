@@ -19,7 +19,8 @@ import {
   GeneralAppointmentConfirmScreen, 
   SpecialistListScreen, 
   SpecialistAppointmentScreen, 
-  SpecialistAppointmentConfirmScreen 
+  SpecialistAppointmentConfirmScreen,
+  MisCitasScreen
 } from './src/screens/AppointmentScreens';
 
 // Screens - Exams
@@ -31,8 +32,12 @@ import {
   MedicalHistoryDetailScreen, 
   EmergencyFlowScreen, 
   SymptomReportScreen, 
-  DoctorDashboardScreen 
+  DoctorDashboardScreen,
+  DoctorCitaDetailScreen,
+  DoctorProfileScreen
 } from './src/screens/MedicalFeatures';
+
+import { TelemedicineCallScreen } from './src/screens/TelemedicineScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const STORAGE_KEY_PROFILE = '@salud_digital_patient_profile_v1';
@@ -112,6 +117,7 @@ export default function App() {
             <Stack.Screen name="SpecialistList" component={SpecialistListScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistAppointment" component={SpecialistAppointmentScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistAppointmentConfirm" component={SpecialistAppointmentConfirmScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="MisCitas" component={MisCitasScreen} options={{ headerShown: false }} />
             
             <Stack.Screen name="ExamsList" component={ExamsListScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ExamDetail" component={ExamDetailScreen} options={{ headerShown: false }} />
@@ -123,6 +129,9 @@ export default function App() {
             <Stack.Screen name="SymptomReport" component={SymptomReportScreen} options={{ title: "Mis sintomas" }} />
             <Stack.Screen name="EmergencyFlow" component={EmergencyFlowScreen} options={{ headerShown: false }} />
             <Stack.Screen name="PatientProfile" component={PatientProfileScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="DoctorCitaDetail" component={DoctorCitaDetailScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="DoctorProfile" component={DoctorProfileScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="TelemedicineCall" component={TelemedicineCallScreen} options={{ headerShown: false }} />
           </Stack.Navigator>
         </NavigationContainer>
       </GestureHandlerRootView>

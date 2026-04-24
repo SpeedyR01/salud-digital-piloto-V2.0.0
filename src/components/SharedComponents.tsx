@@ -1,9 +1,75 @@
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, Alert, Linking, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { styles } from '../theme/globalStyles';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { usePatient } from '../context/PatientContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const EMERGENCY_NUMBER = '123';
+
+export function callEmergency() {
+  if (Platform.OS === 'web') {
+    // En web no funciona tel:, mostramos alerta con el numero
+    alert('ℹ️ En este dispositivo no se puede marcar directamente.\n\nLlame al número de emergencias: 123');
+  } else {
+    Alert.alert(
+      '🚨 ¿Llamar a Emergencias?',
+      '¿Está seguro de que desea llamar al 123?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Llamar ahora 📞', style: 'destructive', onPress: () => Linking.openURL(`tel:${EMERGENCY_NUMBER}`) },
+      ],
+      { cancelable: true }
+    );
+  }
+}
+
+export function AppHeader({
+  title = 'Salud Digital',
+  showBack = false,
+  onBack,
+  onProfilePress,
+  isDoctor = false,
+  doctorInitials,
+  rightComponent,
+}: {
+  title?: string;
+  showBack?: boolean;
+  onBack?: () => void;
+  onProfilePress?: () => void;
+  isDoctor?: boolean;
+  doctorInitials?: string;
+  rightComponent?: React.ReactNode;
+}) {
+  const nav = useNavigation();
+  const handleBack = onBack || (() => nav.goBack());
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10, backgroundColor: '#f8fafc' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+        {showBack ? (
+          <Pressable onPress={handleBack} hitSlop={15}>
+            <Text style={{ fontSize: 32, color: '#2563eb', lineHeight: 32 }}>‹</Text>
+          </Pressable>
+        ) : null}
+        <Text style={{ fontSize: 18, fontWeight: '800', color: '#1d4ed8' }}>{title}</Text>
+      </View>
+      {rightComponent ? rightComponent : onProfilePress ? (
+        <Pressable onPress={onProfilePress}>
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDoctor ? '#93c5fd' : '#1e293b', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            <Text style={{ fontWeight: '700', color: isDoctor ? '#1e3a8a' : '#fff', fontSize: isDoctor ? 12 : 20 }}>
+              {isDoctor ? (doctorInitials || 'DR') : '🧑‍💻'}
+            </Text>
+          </View>
+        </Pressable>
+      ) : (
+         <View style={{ width: 36, height: 36 }} />
+      )}
+    </View>
+  );
+}
 
 export function LargePrimaryButton({
   label,
@@ -84,19 +150,14 @@ export function ScreenChrome({
   const canGoBack = nav.canGoBack();
 
   return (
-    <SafeAreaView style={[styles.safe, { flex: 1 }]}>
-      <View style={{ flex: 1 }}>
-        <View style={[styles.header, { flexDirection: 'row', alignItems: 'center' }]}>
-          {canGoBack && (
-            <Pressable onPress={() => nav.goBack()} style={{ paddingRight: 15, paddingVertical: 5 }}>
-              <Text style={{ fontSize: 36, color: '#007AFF', lineHeight: 36 }}>‹</Text>
-            </Pressable>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{title}</Text>
-            {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+    <SafeAreaView style={[{ flex: 1, backgroundColor: '#f8fafc' }]}>
+      <AppHeader title={title} showBack={canGoBack} onBack={() => nav.goBack()} />
+      <View style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+        {subtitle ? (
+          <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
+            <Text style={{ fontSize: 14, color: '#64748b' }}>{subtitle}</Text>
           </View>
-        </View>
+        ) : null}
         {children}
         {showEmergency ? <EmergencyFAB /> : null}
       </View>

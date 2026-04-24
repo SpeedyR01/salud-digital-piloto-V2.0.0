@@ -37,28 +37,12 @@ export function OnboardingDocumentScreen() {
   const nav = useNavigation<any>();
   const { setProfile } = usePatient();
   const [docNumber, setDocNumber] = useState('');
-  const [userRole, setUserRole] = useState<'especialistas' | 'pacientes' | null>(null);
   const [loading, setLoading] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
 
-  // NUEVO ESTADO: Para controlar el mensaje de error visual
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [docType, setDocType] = useState<DocType>('CC');
-
-  const docTypeOptions = [
-    { id: 'CC', label: 'Cédula de Ciudadanía' },
-    { id: 'TI', label: 'Tarjeta de Identidad' },
-    { id: 'CE', label: 'Cédula de Extranjería' },
-    { id: 'PAS', label: 'Pasaporte' },
-  ];
-
   const handleAuth = async () => {
-    if (!userRole) {
-      Alert.alert("Aviso", "Selecciona si eres Doctor o Paciente.");
-      return;
-    }
-
     if (docNumber.length < 5) {
       Alert.alert("Aviso", "La cédula debe ser válida.");
       return;
@@ -69,33 +53,49 @@ export function OnboardingDocumentScreen() {
 
     try {
       const cleanDoc = docNumber.trim();
+      let foundUser = null;
+      let userRole: 'pacientes' | 'especialistas' | null = null;
+      let userDocId = null;
 
-      const q = query(collection(db, userRole), where('cedula', '==', cleanDoc));
-      const querySnapshot = await getDocs(q);
+      // Buscar en pacientes primero
+      let q = query(collection(db, 'pacientes'), where('cedula', '==', cleanDoc));
+      let querySnapshot = await getDocs(q);
 
       if (!querySnapshot.empty) {
+        foundUser = querySnapshot.docs[0].data();
+        userDocId = querySnapshot.docs[0].id;
+        userRole = 'pacientes';
+      } else {
+        // Si no está en pacientes, buscar en especialistas
+        q = query(collection(db, 'especialistas'), where('cedula', '==', cleanDoc));
+        querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          foundUser = querySnapshot.docs[0].data();
+          userDocId = querySnapshot.docs[0].id;
+          userRole = 'especialistas';
+        }
+      }
+
+      if (foundUser && userRole) {
         setIsVerified(true);
         setErrorMessage(null);
 
-        const userDoc = querySnapshot.docs[0];
-        const userData = userDoc.data();
-
         await AsyncStorage.setItem('userSession', JSON.stringify({
-          ...userData,
+          ...foundUser,
           role: userRole,
-          id: userDoc.id
+          id: userDocId
         }));
 
         if (userRole === 'pacientes') {
           setProfile({
-            name: userData.nombre || 'Paciente',
-            docType: docType,
+            name: foundUser.nombre || 'Paciente',
+            docType: 'CC',
             docNumber: cleanDoc,
             role: 'pacientes'
           });
         }
 
-        Alert.alert("Éxito", `Bienvenido ${userData.nombre || 'Usuario'}`);
+        Alert.alert("Éxito", `Bienvenido ${foundUser.nombre || 'Usuario'}`);
 
         setTimeout(() => {
           if (userRole === 'pacientes') {
@@ -107,7 +107,7 @@ export function OnboardingDocumentScreen() {
 
       } else {
         setIsVerified(false);
-        setErrorMessage('Documento no válido');
+        setErrorMessage('Documento no encontrado o no válido');
       }
     } catch (error: any) {
       console.error("Error de conexión:", error);
@@ -131,49 +131,8 @@ export function OnboardingDocumentScreen() {
           </View>
 
           <Text style={styles.idWelcomeTitle}>Acceso al sistema</Text>
-          <Text style={styles.idWelcomeSubtitle}>Seleccione su perfil e ingrese su documento.</Text>
+          <Text style={styles.idWelcomeSubtitle}>Ingrese su documento para continuar.</Text>
 
-          <View style={styles.idFieldGroup}>
-            <Text style={styles.idFieldLabel}>Tipo de Usuario</Text>
-            <View style={styles.docGrid}>
-              <Pressable
-                onPress={() => setUserRole('especialistas')}
-                style={[styles.docOption, userRole === 'especialistas' && styles.docOptionSelected]}
-              >
-                <Text style={[styles.docOptionText, userRole === 'especialistas' && styles.docOptionTextSelected]}>Doctor</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setUserRole('pacientes')}
-                style={[styles.docOption, userRole === 'pacientes' && styles.docOptionSelected]}
-              >
-                <Text style={[styles.docOptionText, userRole === 'pacientes' && styles.docOptionTextSelected]}>Paciente</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.idFieldGroup}>
-            <Text style={styles.idFieldLabel}>Tipo de documento</Text>
-            <View style={styles.docGrid}>
-              {docTypeOptions.map((opt) => {
-                const selected = opt.id === docType;
-                return (
-                  <Pressable
-                    key={opt.id}
-                    onPress={() => {
-                      setDocType(opt.id as DocType);
-                      setIsVerified(false);
-                      setErrorMessage(null);
-                    }}
-                    style={[styles.docOption, selected ? styles.docOptionSelected : null]}
-                  >
-                    <Text style={[styles.docOptionText, selected ? styles.docOptionTextSelected : null]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
 
           <View style={styles.idFieldGroup}>
             <Text style={styles.idFieldLabel}>Número de documento</Text>
