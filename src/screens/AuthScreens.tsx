@@ -127,7 +127,7 @@ export function OnboardingDocumentScreen() {
 
           <View style={styles.idEmergencyBox}>
             <Text style={styles.idEmergencyIcon}>!</Text>
-            <Text style={styles.idEmergencyText}>¿Es una emergencia? Llame al 911.</Text>
+            <Text style={styles.idEmergencyText}>¿Es una emergencia? Llame al 123.</Text>
           </View>
 
           <Text style={styles.idWelcomeTitle}>Acceso al sistema</Text>

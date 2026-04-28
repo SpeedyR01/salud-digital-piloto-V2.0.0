@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
@@ -32,6 +32,8 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
   const [citas, setCitas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSlot, setSelectedSlot] = useState<string>(''); // format: "docId_hora"
+  const [selectedDoctor, setSelectedDoctor] = useState<any>(null); // Holds chosen doctor data
+  const [doctorSlots, setDoctorSlots] = useState<any>({}); // Slots of the selected doctor
   const [selectedDate, setSelectedDate] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [disponibilidadDocId, setDisponibilidadDocId] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
       <AppHeader
         title={especialidad}
         showBack={true}
-        onBack={() => nav.navigate('HomeServices')}
+        onBack={() => nav.goBack()}
       />
 
       <ScrollView contentContainerStyle={styles.appointmentContent}>
@@ -154,6 +156,7 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
             minDate={new Date().toISOString().split('T')[0]}
             onDayPress={(day: any) => {
               setSelectedDate(day.dateString);
+              setSelectedDoctor(null);
               fetchDisponibilidad(day.dateString);
             }}
             markedDates={{
@@ -185,39 +188,52 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
               No hay doctores disponibles para el {selectedDate}.
             </Text>
           ) : (
-            <View style={{ gap: 20 }}>
-              {doctoresDisponibles.map(docData => {
-                const availableSlots = Object.keys(docData.slots || {}).filter(hora => docData.slots[hora] === true);
-                if (availableSlots.length === 0) return null;
-                
-                availableSlots.sort((a, b) => a.localeCompare(b));
-                return (
-                  <View key={docData.id} style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 }}>
-                    <Text style={{ fontWeight: '800', fontSize: 16, marginBottom: 12, color: '#1e293b' }}>Dr(a). {docData.nombre}</Text>
-                    <View style={styles.appointmentSlotsGrid}>
-                      {availableSlots.map(hora => {
-                         const slotId = `${docData.id}_${hora}`;
-                         const selected = selectedSlot === slotId;
-                         return (
-                           <Pressable
-                             key={slotId}
-                             onPress={() => {
-                               setSelectedSlot(slotId);
-                               setDisponibilidadDocId(docData.id);
-                               setDoctorId(docData.doctorId);
-                               setDoctorNombre(docData.nombre);
-                             }}
-                             style={[styles.appointmentSlotBtn, selected ? styles.appointmentSlotBtnSelected : null, { minWidth: '30%', marginBottom: 8 }]}
-                           >
-                             <Text style={[styles.appointmentSlotText, selected ? styles.appointmentSlotTextSelected : null]}>{hora}</Text>
-                           </Pressable>
-                         );
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
+            !selectedDoctor ? (
+              <View style={{ gap: 20 }}>
+                {doctoresDisponibles.map(docData => (
+                  <Pressable
+                    key={docData.id}
+                    onPress={() => {
+                      setSelectedDoctor(docData);
+                      setDoctorSlots(docData.slots || {});
+                      setDisponibilidadDocId(docData.id);
+                      setDoctorId(docData.doctorId);
+                      setDoctorNombre(docData.nombre);
+                    }}
+                    style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 }}
+                  >
+                    <Text style={{ fontWeight: '800', fontSize: 16, color: '#1e293b' }}>Dr(a). {docData.nombre}</Text>
+                    <Text style={{ color: '#64748b' }}>{docData.especialidad || 'Especialidad'} • {docData.sede || ''}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View style={{ gap: 20 }}>
+                <Pressable onPress={() => setSelectedDoctor(null)} style={{ marginBottom: 12 }}>
+                  <Text style={{ color: '#0056b3' }}>← Cambiar doctor</Text>
+                </Pressable>
+                <View style={styles.appointmentSlotsGrid}>
+                  {Object.keys(selectedDoctor.slots || {}).filter(h => selectedDoctor.slots[h] === true).sort((a, b) => a.localeCompare(b)).map(hora => {
+                    const slotId = `${selectedDoctor.id}_${hora}`;
+                    const selected = selectedSlot === slotId;
+                    return (
+                      <Pressable
+                        key={slotId}
+                        onPress={() => {
+                          setSelectedSlot(slotId);
+                          setDisponibilidadDocId(selectedDoctor.id);
+                          setDoctorId(selectedDoctor.doctorId);
+                          setDoctorNombre(selectedDoctor.nombre);
+                        }}
+                        style={[styles.appointmentSlotBtn, selected ? styles.appointmentSlotBtnSelected : null, { minWidth: '30%', marginBottom: 8 }]}
+                      >
+                        <Text style={[styles.appointmentSlotText, selected ? styles.appointmentSlotTextSelected : null]}>{hora}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )
           )
         )}
 
@@ -352,8 +368,8 @@ export function GeneralAppointmentScreen() {
             <View style={{ backgroundColor: '#1e293b', borderRadius: 8, padding: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
               <Text style={{ color: '#10b981', marginRight: 10, fontSize: 16 }}>🛡️</Text>
               <View>
-                <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>CONNECTION STATUS</Text>
-                <Text style={{ color: '#f8fafc', fontWeight: '700', fontSize: 12 }}>Secure Patient Portal Active</Text>
+                <Text style={{ color: '#94a3b8', fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>ESTADO DE CONEXIÓN</Text>
+                <Text style={{ color: '#f8fafc', fontWeight: '700', fontSize: 12 }}>Portal Seguro de Paciente Activo</Text>
               </View>
             </View>
 
@@ -365,18 +381,18 @@ export function GeneralAppointmentScreen() {
                 {currentCita.estado === 'Confirmada' ? 'El doctor está listo' : 'El doctor lo\natenderá en\nbreve'}
               </Text>
               <Text style={{ fontSize: 14, color: '#475569', textAlign: 'center', marginBottom: 24, lineHeight: 20 }}>
-                {currentCita.estado === 'Confirmada' ? 'Por favor ingrese a la sala virtual.' : 'Thank you for your patience.\nPlease stay on this screen.'}
+                {currentCita.estado === 'Confirmada' ? 'Por favor ingrese a la sala virtual.' : 'Gracias por su paciencia.\nPor favor permanezca en esta pantalla.'}
               </Text>
 
               {currentCita.estado === 'En Espera' ? (
                 <View style={{ width: '100%', gap: 15 }}>
                   <View style={{ flexDirection: 'row', gap: 15, width: '100%' }}>
                     <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 16, alignItems: 'center' }}>
-                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', letterSpacing: 1, marginBottom: 8 }}>YOUR TURN</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', letterSpacing: 1, marginBottom: 8 }}>TU TURNO</Text>
                       <Text style={{ fontSize: 32, fontWeight: '900', color: '#2563eb' }}>{queuePosition + 1}</Text>
                     </View>
                     <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 16, alignItems: 'center' }}>
-                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', letterSpacing: 1, marginBottom: 8 }}>EST. WAIT</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#64748b', letterSpacing: 1, marginBottom: 8 }}>ESPERA ESTIMADA</Text>
                       <Text style={{ fontSize: 32, fontWeight: '900', color: '#2563eb' }}>{(queuePosition + 1) * 15}</Text>
                       <Text style={{ fontSize: 12, color: '#64748b', marginTop: -4 }}>mins</Text>
                     </View>
@@ -403,9 +419,9 @@ export function GeneralAppointmentScreen() {
                  <Text style={{ fontSize: 30 }}>👨‍⚕️</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: '#2563eb', letterSpacing: 1, textTransform: 'uppercase' }}>Your Physician</Text>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: '#2563eb', letterSpacing: 1, textTransform: 'uppercase' }}>Su Médico</Text>
                 <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b', marginTop: 2 }}>{currentCita.doctorNombre || 'Dr. Elena Rodriguez'}</Text>
-                <Text style={{ fontSize: 12, color: '#64748b' }}>General Practitioner</Text>
+                <Text style={{ fontSize: 12, color: '#64748b' }}>Médico General</Text>
               </View>
               <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center' }}>
                 <Text style={{ color: '#2563eb', fontSize: 12, fontWeight: '800' }}>i</Text>
@@ -417,21 +433,23 @@ export function GeneralAppointmentScreen() {
                 <Text style={{ fontSize: 18, color: '#2563eb' }}>🗂</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>Review Medical Records</Text>
-                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Prepare your history before the call</Text>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>Revisar Historial Médico</Text>
+                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Prepare su historial antes de la llamada</Text>
               </View>
               <Text style={{ color: '#cbd5e1', fontSize: 20 }}>›</Text>
             </Pressable>
 
-            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 40, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
-              <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                <Text style={{ fontSize: 18, color: '#2563eb' }}>❓</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>Need Help?</Text>
-                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Contact technical assistance</Text>
-              </View>
-            </View>
+<Pressable onPress={() => {}} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 40, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                  <Text style={{ fontSize: 18, color: '#2563eb' }}>❓</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>Información rápida</Text>
+                  <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    Tenga sus síntomas y preguntas listas para describir al doctor durante la llamada rápida.
+                  </Text>
+                </View>
+              </Pressable>
           </View>
         )}
       </ScrollView>
@@ -660,12 +678,90 @@ export function MisCitasScreen() {
     fetchCitas();
   }, [profile]);
 
+  // Alerta inmediata al paciente si hubo reasignaciones recientes
+  useEffect(() => {
+    if (citas.length > 0) {
+      const reagendadas = citas.filter(c => c.mensajeReasignacion && !c.notificadoReasignacion);
+      if (reagendadas.length > 0) {
+        // Mostrar alerta al instante
+        if (Platform.OS === 'web') {
+          window.alert("⚠️ IMPORTANTE:\n" + reagendadas[0].mensajeReasignacion);
+        } else {
+          Alert.alert("Atención", reagendadas[0].mensajeReasignacion);
+        }
+        
+        // Marcar en la base de datos que ya se notificó al usuario para no volver a lanzar la alerta
+        reagendadas.forEach(async c => {
+          try {
+            await updateDoc(doc(db, 'citas', c.id), { notificadoReasignacion: true });
+          } catch(e) {}
+        });
+      }
+    }
+  }, [citas]);
+
   const estadoColor = (estado: string) => {
     switch (estado) {
       case 'Confirmada': return { bg: '#d1fae5', text: '#065f46', dot: '#10b981' };
       case 'Cancelada':  return { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' };
       case 'Perdida':    return { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' };
       default:           return { bg: '#fef3c7', text: '#92400e', dot: '#f59e0b' };
+    }
+  };
+
+  const cancelarCita = (cita: any) => {
+    const confirmCancel = async () => {
+      setLoading(true);
+      try {
+        // 1. Liberar el espacio en la disponibilidad del doctor
+        const qDisp = query(
+          collection(db, 'disponibilidad_doctores'),
+          where('fecha', '==', cita.fecha),
+          where('especialidad', '==', cita.especialidad),
+          where('doctorId', '==', cita.doctorId)
+        );
+        const dispSnap = await getDocs(qDisp);
+        if (!dispSnap.empty) {
+          const dispDoc = dispSnap.docs[0];
+          const slotUpdate: any = {};
+          slotUpdate[`slots.${cita.hora}`] = true; // Liberamos la hora
+          await updateDoc(doc(db, 'disponibilidad_doctores', dispDoc.id), slotUpdate);
+        }
+
+        // 2. Marcar la cita como Cancelada
+        await updateDoc(doc(db, 'citas', cita.id), { estado: 'Cancelada' });
+        
+        // 3. Removerla de la lista local
+        setCitas(prev => prev.filter(c => c.id !== cita.id));
+        
+        if (Platform.OS === 'web') {
+          window.alert('La cita ha sido cancelada y el espacio ha sido liberado.');
+        }
+      } catch (error) {
+        console.error('Error al cancelar cita:', error);
+        if (Platform.OS === 'web') {
+          window.alert('No se pudo cancelar la cita. Inténtalo de nuevo.');
+        } else {
+          Alert.alert('Error', 'No se pudo cancelar la cita. Inténtalo de nuevo.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('¿Estás seguro de que deseas cancelar esta cita?')) {
+        confirmCancel();
+      }
+    } else {
+      Alert.alert(
+        'Cancelar Cita',
+        '¿Estás seguro de que deseas cancelar esta cita?',
+        [
+          { text: 'No', style: 'cancel' },
+          { text: 'Sí, cancelar', style: 'destructive', onPress: confirmCancel }
+        ]
+      );
     }
   };
 
@@ -737,17 +833,36 @@ export function MisCitasScreen() {
                   ))}
                 </View>
 
+                {/* Mensaje de Reasignación Automática */}
+                {cita.mensajeReasignacion && (
+                  <View style={{ backgroundColor: '#fff7ed', borderRadius: 8, padding: 12, marginTop: 14, borderWidth: 1, borderColor: '#fdba74', flexDirection: 'row', gap: 8 }}>
+                    <Text style={{ fontSize: 18 }}>⚠️</Text>
+                    <Text style={{ color: '#c2410c', fontSize: 13, fontWeight: '600', flex: 1 }}>{cita.mensajeReasignacion}</Text>
+                  </View>
+                )}
+
                 {/* Botón a videollamada para el Paciente */}
                 {cita.estado === 'Confirmada' ? (
-                  <Pressable
-                    onPress={() => nav.navigate('TelemedicineCall' as any, { citaId: cita.id, pacienteNombre: profile?.name || 'Paciente', role: 'patient' })}
-                    style={{ marginTop: 14, backgroundColor: '#2563eb', borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}
-                  >
-                    <Text style={{ fontSize: 20 }}>🎥</Text>
-                    <Text style={{ fontSize: 15, color: '#fff', fontWeight: '700' }}>
-                      Ingresar a Sala Virtual
-                    </Text>
-                  </Pressable>
+                  <View style={{ gap: 10, marginTop: 14 }}>
+                    <Pressable
+                      onPress={() => nav.navigate('TelemedicineCall' as any, { citaId: cita.id, pacienteNombre: profile?.name || 'Paciente', role: 'patient' })}
+                      style={{ backgroundColor: '#2563eb', borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}
+                    >
+                      <Text style={{ fontSize: 20 }}>🎥</Text>
+                      <Text style={{ fontSize: 15, color: '#fff', fontWeight: '700' }}>
+                        Ingresar a Sala Virtual
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => cancelarCita(cita)}
+                      style={{ backgroundColor: '#fee2e2', borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}
+                    >
+                      <Text style={{ fontSize: 20 }}>❌</Text>
+                      <Text style={{ fontSize: 15, color: '#dc2626', fontWeight: '700' }}>
+                        Cancelar Cita
+                      </Text>
+                    </Pressable>
+                  </View>
                 ) : cita.estado === 'Perdida' ? (
                   <Pressable
                     onPress={() => {

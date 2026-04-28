@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator, TextInput, FlatList, TouchableOpacity, Alert, Linking } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, TextInput, FlatList, TouchableOpacity, Alert, Linking, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -58,17 +58,17 @@ export function MedicalHistoryScreen() {
           where('estado', '==', 'Completada')
         );
         const snapshot = await getDocs(q);
-        
+
         const now = new Date();
         const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
 
         const results: any[] = [];
         for (const d of snapshot.docs) {
-           const data = d.data();
-           const citaDate = new Date(`${data.fecha}T00:00:00`);
-           if (now.getTime() - citaDate.getTime() <= thirtyDaysMs) {
-             results.push({ ...data, id: d.id });
-           }
+          const data = d.data();
+          const citaDate = new Date(`${data.fecha}T00:00:00`);
+          if (now.getTime() - citaDate.getTime() <= thirtyDaysMs) {
+            results.push({ ...data, id: d.id });
+          }
         }
 
         results.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
@@ -124,23 +124,23 @@ export function MedicalHistoryDetailScreen({ route }: { route: { params: { histo
       try {
         const mockH = historyEntries.find(x => x.id === route.params.historyId);
         if (mockH) {
-           setH(mockH);
-           return;
+          setH(mockH);
+          return;
         }
 
         const docSnap = await getDoc(doc(db, 'citas', route.params.historyId));
         if (docSnap.exists()) {
-           const data = docSnap.data();
-           setH({
-              id: docSnap.id,
-              title: `Consulta ${data.especialidad}`,
-              serviceLabel: `Dr(a). ${data.doctorNombre}`,
-              date: data.fecha,
-              motivo: data.notas_motivo || 'Consulta médica general.',
-              diagnostico: data.notas_diagnostico || 'Evaluación clínica completada satisfactoriamente.',
-              recomendaciones: data.notas_recomendaciones || ['Continuar tratamiento según indicaciones médicas.'],
-              linkedExamIds: []
-           });
+          const data = docSnap.data();
+          setH({
+            id: docSnap.id,
+            title: `Consulta ${data.especialidad}`,
+            serviceLabel: `Dr(a). ${data.doctorNombre}`,
+            date: data.fecha,
+            motivo: data.notas_motivo || 'Consulta médica general.',
+            diagnostico: data.notas_diagnostico || 'Evaluación clínica completada satisfactoriamente.',
+            recomendaciones: data.notas_recomendaciones || ['Continuar tratamiento según indicaciones médicas.'],
+            linkedExamIds: []
+          });
         }
       } catch (e) {
       } finally {
@@ -440,7 +440,7 @@ export function DoctorDashboardScreen() {
     }
   };
 
-  const cargarDisponibilidadDia = async (cedula: string, fecha: string) => {
+  const cargarDisponibilidadDia = async (cedula: string, fecha: string, docInfo?: any) => {
     try {
       // Carga slots del doctor
       const q = query(collection(db, 'disponibilidad_doctores'), where('doctorId', '==', cedula), where('fecha', '==', fecha));
@@ -448,13 +448,22 @@ export function DoctorDashboardScreen() {
       if (!snapshot.empty) {
         setDoctorSlots(snapshot.docs[0].data().slots || {});
       } else {
-        setDoctorSlots({});
+        const defaultSlots: { [key: string]: boolean } = {};
+        ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00'].forEach(s => defaultSlots[s] = true);
+        setDoctorSlots(defaultSlots);
+
+        const dataToUse = docInfo || doctorData;
+        if (dataToUse && dataToUse.cedula) {
+          await addDoc(collection(db, 'disponibilidad_doctores'), {
+            doctorId: dataToUse.cedula,
+            nombre: dataToUse.nombre || '',
+            especialidad: dataToUse.especialidad || 'Médico General',
+            fecha: fecha,
+            slots: defaultSlots
+          });
+        }
       }
-
-      // Carga citas reservadas para ese día del doctor (Migrado al useEffect real-time)
-      // Carga citas de atención inmediata (Migrado al useEffect real-time)
-
-    } catch (e) {}
+    } catch (e) { }
   };
 
   useEffect(() => {
@@ -486,13 +495,16 @@ export function DoctorDashboardScreen() {
     };
   }, [doctorData?.cedula, selectedDoctorDate]);
 
-  const toggleSlot = (hora: string) => {
-    setDoctorSlots(prev => ({ ...prev, [hora]: !prev[hora] }));
-  };
-
-  const guardarDisponibilidad = async () => {
+  const toggleSlot = async (hora: string) => {
     if (!doctorData?.cedula || !selectedDoctorDate) return;
-    setSavingAgenda(true);
+
+    // Calcular el nuevo estado localmente
+    const newSlots = { ...doctorSlots, [hora]: !doctorSlots[hora] };
+    
+    // Actualizar la interfaz instantáneamente
+    setDoctorSlots(newSlots);
+
+    // Guardar automáticamente en Firebase
     try {
       const q = query(collection(db, 'disponibilidad_doctores'), where('doctorId', '==', doctorData.cedula), where('fecha', '==', selectedDoctorDate));
       const snapshot = await getDocs(q);
@@ -501,18 +513,19 @@ export function DoctorDashboardScreen() {
         nombre: doctorData.nombre || '',
         especialidad: doctorData.especialidad || 'Médico General',
         fecha: selectedDoctorDate,
-        slots: doctorSlots
+        slots: newSlots
       };
+      
       if (!snapshot.empty) {
         await setDoc(doc(db, 'disponibilidad_doctores', snapshot.docs[0].id) as any, datosAGuardar, { merge: true });
       } else {
         await addDoc(collection(db, 'disponibilidad_doctores'), datosAGuardar);
       }
-      Alert.alert("Guardado", "Disponibilidad actualizada.");
     } catch (e) {
-      Alert.alert("Error", "No se pudo sincronizar.");
-    } finally {
-      setSavingAgenda(false);
+      console.error("Error al autoguardar:", e);
+      // Revertir en caso de error
+      setDoctorSlots(doctorSlots);
+      Alert.alert("Error", "No se pudo sincronizar el horario de forma automática.");
     }
   };
 
@@ -549,12 +562,35 @@ export function DoctorDashboardScreen() {
         const session = JSON.parse(sessionString);
         setDoctorData(session);
         await cargarSintomas(session.cedula);
-        
+
         // Auto-load today's agenda for Home dashboard
         const today = new Date().toISOString().split('T')[0];
         setSelectedDoctorDate(today);
-        await cargarDisponibilidadDia(session.cedula, today);
-      } catch (e) {}
+        await cargarDisponibilidadDia(session.cedula, today, session);
+
+        // Auto-generate next 14 days of availability in background
+        setTimeout(async () => {
+          for (let i = 1; i <= 14; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() + i);
+            const fechaStr = d.toISOString().split('T')[0];
+            const q = query(collection(db, 'disponibilidad_doctores'), where('doctorId', '==', session.cedula), where('fecha', '==', fechaStr));
+            const snap = await getDocs(q);
+            if (snap.empty) {
+              const defaultSlots: { [key: string]: boolean } = {};
+              ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00'].forEach(s => defaultSlots[s] = true);
+              await addDoc(collection(db, 'disponibilidad_doctores'), {
+                doctorId: session.cedula,
+                nombre: session.nombre || '',
+                // Preserve the actual especialidad of the specialist; if missing, use default
+                especialidad: session.especialidad || 'Médico General',
+                fecha: fechaStr,
+                slots: defaultSlots
+              });
+            }
+          }
+        }, 2000);
+      } catch (e) { }
     };
     initialize();
   }, []);
@@ -592,7 +628,7 @@ export function DoctorDashboardScreen() {
           minDate={new Date().toISOString().split('T')[0]}
           onDayPress={(day: any) => {
             setSelectedDoctorDate(day.dateString);
-            if (doctorData?.cedula) cargarDisponibilidadDia(doctorData.cedula, day.dateString);
+            if (doctorData?.cedula) cargarDisponibilidadDia(doctorData.cedula, day.dateString, doctorData);
           }}
           markedDates={{ [selectedDoctorDate]: { selected: true, selectedColor: '#0056b3' } }}
         />
@@ -649,9 +685,7 @@ export function DoctorDashboardScreen() {
               );
             })}
           </View>
-          <Pressable style={[styles.button, savingAgenda && styles.buttonLoading, { marginTop: 30, marginBottom: 50 }]} onPress={guardarDisponibilidad} disabled={savingAgenda}>
-            {savingAgenda ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Aceptar y Guardar</Text>}
-          </Pressable>
+          <View style={{ height: 40 }} />
         </View>
       ) : (
         <Text style={{ textAlign: 'center', marginTop: 30, color: '#6b7280', marginBottom: 50 }}>Selecciona un día.</Text>
@@ -737,7 +771,7 @@ export function DoctorDashboardScreen() {
     const todayCitas = citasDelDia || [];
     const pendingCitas = todayCitas.filter(c => c.estado === 'Confirmada' || c.estado === 'En Espera');
     const completedCount = todayCitas.filter(c => c.estado === 'Completada').length;
-    
+
     pendingCitas.sort((a, b) => {
       const parseTime = (timeStr: string) => {
         if (!timeStr) return 0;
@@ -749,16 +783,16 @@ export function DoctorDashboardScreen() {
         if (modifier === 'AM' && h === 12) h = 0;
         return h * 60 + m;
       };
-      
+
       const timeA = parseTime(a.hora);
       const timeB = parseTime(b.hora);
       if (timeA === timeB) {
-         return (a.creadaEn || 0) - (b.creadaEn || 0);
+        return (a.creadaEn || 0) - (b.creadaEn || 0);
       }
       return timeA - timeB;
     });
 
-    const currentCita = pendingCitas[0]; 
+    const currentCita = pendingCitas[0];
     const upcomingCitas = pendingCitas.slice(1);
     const doctorInitials = doctorData?.nombre ? doctorData.nombre.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase() : 'DR';
     const doctorName = doctorData?.nombre ? doctorData.nombre.split(' ')[0] : 'Doctor';
@@ -812,7 +846,7 @@ export function DoctorDashboardScreen() {
           </View>
 
           <View style={{ alignItems: 'center', marginVertical: 30 }}>
-            <Pressable 
+            <Pressable
               onPress={() => {
                 if (currentCita) {
                   nav.navigate('DoctorCitaDetail', {
@@ -829,7 +863,7 @@ export function DoctorDashboardScreen() {
                   Alert.alert("Aviso", "No hay paciente actual en la cola.");
                 }
               }}
-              style={({pressed}) => ({
+              style={({ pressed }) => ({
                 width: 260, height: 260, borderRadius: 130,
                 backgroundColor: pressed ? '#1e40af' : '#2563eb',
                 justifyContent: 'center', alignItems: 'center',
@@ -873,25 +907,25 @@ export function DoctorDashboardScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
       {bottomTab === 'home' && renderHome()}
       {bottomTab === 'schedule' && (
-         <View style={{ flex: 1 }}>
-            <AppHeader title="Panel de Agenda" />
-            {renderAgenda()}
-         </View>
+        <View style={{ flex: 1 }}>
+          <AppHeader title="Panel de Agenda" />
+          {renderAgenda()}
+        </View>
       )}
       {bottomTab === 'clinical' && (
-         <View style={{ flex: 1 }}>
-            <AppHeader title="Panel Clínico" />
-            <View style={styles.tabSelector}>
-              <TouchableOpacity style={[styles.tabButton, activeTab === 'sintomas' && styles.tabButtonActive]} onPress={() => setActiveTab('sintomas')}>
-                 <Text style={[styles.tabText, activeTab === 'sintomas' && styles.tabTextActive]}>🩺 Síntomas</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.tabButton, activeTab === 'examenes' && styles.tabButtonActive]} onPress={() => setActiveTab('examenes')}>
-                <Text style={[styles.tabText, activeTab === 'examenes' && styles.tabTextActive]}>📋 Exámenes</Text>
-              </TouchableOpacity>
-            </View>
-            {activeTab === 'sintomas' && renderSintomas()}
-            {activeTab === 'examenes' && renderExamenes()}
-         </View>
+        <View style={{ flex: 1 }}>
+          <AppHeader title="Panel Clínico" />
+          <View style={styles.tabSelector}>
+            <TouchableOpacity style={[styles.tabButton, activeTab === 'sintomas' && styles.tabButtonActive]} onPress={() => setActiveTab('sintomas')}>
+              <Text style={[styles.tabText, activeTab === 'sintomas' && styles.tabTextActive]}>🩺 Síntomas</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabButton, activeTab === 'examenes' && styles.tabButtonActive]} onPress={() => setActiveTab('examenes')}>
+              <Text style={[styles.tabText, activeTab === 'examenes' && styles.tabTextActive]}>📋 Exámenes</Text>
+            </TouchableOpacity>
+          </View>
+          {activeTab === 'sintomas' && renderSintomas()}
+          {activeTab === 'examenes' && renderExamenes()}
+        </View>
       )}
 
       {/* Bottom Tab Bar */}
@@ -905,11 +939,11 @@ export function DoctorDashboardScreen() {
           <Pressable
             key={item.id}
             onPress={() => {
-               if (item.id === 'profile') {
-                  nav.navigate('DoctorProfile');
-               } else {
-                  setBottomTab(item.id as any);
-               }
+              if (item.id === 'profile') {
+                nav.navigate('DoctorProfile');
+              } else {
+                setBottomTab(item.id as any);
+              }
             }}
             style={{ alignItems: 'center', flex: 1 }}
           >
@@ -944,16 +978,125 @@ export function DoctorCitaDetailScreen({ route }: { route: { params: RootStackPa
       const sessionString = await AsyncStorage.getItem('userSession');
       const session = sessionString ? JSON.parse(sessionString) : null;
       if (!session) return;
-      
-      await setDoc(doc(db, 'citas', citaId) as any, { 
+
+      await setDoc(doc(db, 'citas', citaId) as any, {
         estado: 'Confirmada',
         doctorId: session.cedula,
         doctorNombre: session.nombre
       }, { merge: true });
-      
+
       nav.navigate('TelemedicineCall', { citaId, pacienteNombre, role: 'doctor' });
     } catch (e) {
       Alert.alert("Error", "No se pudo aceptar al paciente.");
+    }
+  };
+
+  const cancelarYReasignar = async () => {
+    try {
+      if (Platform.OS === 'web') {
+        const confirm = window.confirm("¿Estás seguro de cancelar esta cita? El sistema intentará reasignarla automáticamente a otro médico disponible.");
+        if (confirm) {
+          performReasignacion();
+        }
+      } else {
+        Alert.alert(
+          "Cancelar Cita",
+          "¿Estás seguro de cancelar esta cita? El sistema intentará reasignarla automáticamente a otro médico disponible.",
+          [
+            { text: 'No, Volver', style: 'cancel' },
+            { text: 'Sí, Cancelar', style: 'destructive', onPress: performReasignacion }
+          ]
+        );
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const performReasignacion = async () => {
+    try {
+      const sessionString = await AsyncStorage.getItem('userSession');
+      const session = sessionString ? JSON.parse(sessionString) : null;
+      if (!session) return;
+
+      // Obtener la disponibilidad de todos los doctores de la misma especialidad a partir de la fecha de la cita, excluyendo al doctor actual
+      const snapDisp = await getDocs(collection(db, 'disponibilidad_doctores'));
+      const allDisp = snapDisp.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+        .filter(d => d.especialidad === especialidad && d.fecha >= fecha && d.doctorId !== session.cedula);
+
+      allDisp.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+      // Obtener todas las citas para verificar colisiones
+      const snapCitas = await getDocs(collection(db, 'citas'));
+      const allCitas = snapCitas.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+
+      let foundNewDoctor = false;
+      let newDate = '';
+      let newTime = '';
+      let newDoctorId = '';
+      let newDoctorName = '';
+
+      // Primer intento: misma fecha y misma hora
+      const sameDayDisp = allDisp.filter(d => d.fecha === fecha && d.slots && d.slots[hora]);
+      for (const disp of sameDayDisp) {
+        const isBusy = allCitas.some(c => c.doctorId === disp.doctorId && c.fecha === disp.fecha && c.hora === hora && c.estado !== 'Cancelada' && c.estado !== 'Perdida');
+        if (!isBusy) {
+          foundNewDoctor = true;
+          newDate = fecha;
+          newTime = hora;
+          newDoctorId = disp.doctorId;
+          newDoctorName = disp.nombre;
+          break;
+        }
+      }
+
+      // Segundo intento: el slot más cercano disponible (fecha futura o misma fecha pero hora posterior)
+      if (!foundNewDoctor) {
+        for (const disp of allDisp) {
+          if (!disp.slots) continue;
+          const availableTimes = Object.keys(disp.slots).filter(time => disp.slots[time]).sort();
+          for (const time of availableTimes) {
+            const isBusy = allCitas.some(c => c.doctorId === disp.doctorId && c.fecha === disp.fecha && c.hora === time && c.estado !== 'Cancelada' && c.estado !== 'Perdida');
+            if (!isBusy) {
+              if (disp.fecha > fecha || (disp.fecha === fecha && time >= hora)) {
+                foundNewDoctor = true;
+                newDate = disp.fecha;
+                newTime = time;
+                newDoctorId = disp.doctorId;
+                newDoctorName = disp.nombre;
+                break;
+              }
+            }
+          }
+          if (foundNewDoctor) break;
+        }
+      }
+
+      if (foundNewDoctor) {
+        // Se encontró un reemplazo, reasignar y notificar
+        await setDoc(doc(db, 'citas', citaId) as any, {
+          doctorId: newDoctorId,
+          doctorNombre: newDoctorName,
+          fecha: newDate,
+          hora: newTime,
+          mensajeReasignacion: (newDate === fecha && newTime === hora) 
+            ? `El doctor canceló y tu cita fue reasignada al Dr(a). ${newDoctorName} a la misma hora.`
+            : `El doctor canceló y tu cita fue reagendada para el ${newDate} a las ${newTime} con el Dr(a). ${newDoctorName}.`
+        }, { merge: true });
+
+        Alert.alert("Éxito", "La cita fue cancelada y reasignada automáticamente a otro especialista.");
+        nav.goBack();
+      } else {
+        // No hay reemplazo disponible, cancelar definitivamente
+        await setDoc(doc(db, 'citas', citaId) as any, {
+          estado: 'Cancelada',
+          mensajeReasignacion: 'El doctor canceló tu cita y no hay disponibilidad cercana para reasignarla.'
+        }, { merge: true });
+        Alert.alert("Cancelada", "No se encontraron especialistas disponibles. La cita ha sido cancelada.");
+        nav.goBack();
+      }
+    } catch (e) {
+      Alert.alert("Error", "Ocurrió un problema al intentar reasignar la cita.");
     }
   };
 
@@ -1011,10 +1154,10 @@ export function DoctorCitaDetailScreen({ route }: { route: { params: RootStackPa
         {/* Boton videollamada */}
         <View style={{ backgroundColor: '#eff6ff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#bfdbfe', borderStyle: 'solid' }}>
           <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '600', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Consulta Virtual</Text>
-          
+
           {liveEstado === 'Cancelada' || liveEstado === 'Perdida' ? (
             <View style={{ backgroundColor: '#f3f4f6', borderRadius: 12, paddingVertical: 16, alignItems: 'center' }}>
-               <Text style={{ color: '#6b7280', fontWeight: '700' }}>Esta cita ha sido cancelada o perdida.</Text>
+              <Text style={{ color: '#6b7280', fontWeight: '700' }}>Esta cita ha sido cancelada o perdida.</Text>
             </View>
           ) : liveEstado === 'En Espera' ? (
             <Pressable
@@ -1036,6 +1179,17 @@ export function DoctorCitaDetailScreen({ route }: { route: { params: RootStackPa
           <Text style={{ color: '#93c5fd', fontSize: 12, textAlign: 'center', marginTop: 8 }}>Conexión segura en tiempo real</Text>
         </View>
 
+        {/* Boton Cancelar (solo si está activa) */}
+        {liveEstado !== 'Cancelada' && liveEstado !== 'Perdida' && liveEstado !== 'Completada' && (
+          <Pressable
+            onPress={cancelarYReasignar}
+            style={{ backgroundColor: '#fee2e2', borderRadius: 12, paddingVertical: 16, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 }}
+          >
+            <Text style={{ fontSize: 22 }}>⚠️</Text>
+            <Text style={{ color: '#dc2626', fontSize: 16, fontWeight: '700' }}>Cancelar Cita</Text>
+          </Pressable>
+        )}
+
         <View style={{ height: 20 }} />
       </ScrollView>
     </SafeAreaView>
@@ -1053,7 +1207,7 @@ export function DoctorProfileScreen() {
       try {
         const s = await AsyncStorage.getItem('userSession');
         if (s) setDoctorData(JSON.parse(s));
-      } catch {}
+      } catch { }
     };
     load();
   }, []);
@@ -1170,13 +1324,13 @@ export function DoctorPostCallScreen({ route }: any) {
       const sessionString = await AsyncStorage.getItem('userSession');
       const session = sessionString ? JSON.parse(sessionString) : null;
       if (!session) return;
-      
-      await setDoc(doc(db, 'citas', nextPatient.id) as any, { 
+
+      await setDoc(doc(db, 'citas', nextPatient.id) as any, {
         estado: 'Confirmada',
         doctorId: session.cedula,
         doctorNombre: session.nombre
       }, { merge: true });
-      
+
       nav.replace('TelemedicineCall', { citaId: nextPatient.id, pacienteNombre: nextPatient.pacienteNombre, role: 'doctor' });
     } catch (e) {
       Alert.alert("Error", "No se pudo aceptar al paciente.");
@@ -1226,7 +1380,7 @@ export function DoctorPostCallScreen({ route }: any) {
           <View style={{ backgroundColor: '#1d4ed8', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignSelf: 'flex-start', marginBottom: 12 }}>
             <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 1 }}>NEXT IN LINE</Text>
           </View>
-          
+
           <View style={{ position: 'absolute', right: 20, top: 20, opacity: 0.1 }}>
             <Text style={{ fontSize: 60 }}>👥</Text>
           </View>
@@ -1235,7 +1389,7 @@ export function DoctorPostCallScreen({ route }: any) {
             <ActivityIndicator size="small" color="#1d4ed8" />
           ) : nextPatient ? (
             <>
-              <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b', marginBottom: 4 }}>Turn {nextPatient.id.substring(0,4).toUpperCase()} - {nextPatient.pacienteNombre}</Text>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b', marginBottom: 4 }}>Turn {nextPatient.id.substring(0, 4).toUpperCase()} - {nextPatient.pacienteNombre}</Text>
               <Text style={{ fontSize: 12, color: '#475569', marginBottom: 12 }}>Follow-up: Post-op recovery review</Text>
               <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -1273,7 +1427,7 @@ export function DoctorPostCallScreen({ route }: any) {
 
         {nextPatient ? (
           <View style={{ alignItems: 'center' }}>
-            <Pressable onPress={acceptNextPatient} style={({pressed}) => [{ width: 100, height: 100, borderRadius: 50, backgroundColor: '#0256d3', justifyContent: 'center', alignItems: 'center', shadowColor: '#0256d3', shadowOpacity: 0.4, shadowRadius: 15, elevation: 8, marginBottom: 16, opacity: pressed ? 0.8 : 1 }]}>
+            <Pressable onPress={acceptNextPatient} style={({ pressed }) => [{ width: 100, height: 100, borderRadius: 50, backgroundColor: '#0256d3', justifyContent: 'center', alignItems: 'center', shadowColor: '#0256d3', shadowOpacity: 0.4, shadowRadius: 15, elevation: 8, marginBottom: 16, opacity: pressed ? 0.8 : 1 }]}>
               <Text style={{ fontSize: 30, color: '#fff', marginLeft: 4, marginBottom: 4 }}>▶</Text>
               <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>START</Text>
             </Pressable>
@@ -1281,12 +1435,12 @@ export function DoctorPostCallScreen({ route }: any) {
           </View>
         ) : (
           <View style={{ alignItems: 'center' }}>
-             <Pressable onPress={() => nav.navigate('DoctorDashboard')} style={{ padding: 16, backgroundColor: '#cbd5e1', borderRadius: 12 }}>
-               <Text style={{ fontWeight: '800', color: '#475569' }}>REGRESAR AL INICIO</Text>
-             </Pressable>
+            <Pressable onPress={() => nav.navigate('DoctorDashboard')} style={{ padding: 16, backgroundColor: '#cbd5e1', borderRadius: 12 }}>
+              <Text style={{ fontWeight: '800', color: '#475569' }}>REGRESAR AL INICIO</Text>
+            </Pressable>
           </View>
         )}
-        
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
