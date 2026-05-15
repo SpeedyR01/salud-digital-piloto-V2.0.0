@@ -4,6 +4,7 @@ export type RootStackParamList = {
   Login: undefined;
   DoctorScreen: undefined;
   DoctorDashboard: { doctorData: any; cedula: string };
+  AssistantDashboard: undefined;
   OnboardingDocument: undefined;
   MainTabs: undefined;
   HomeServices: { patientData: any; cedula: string } | undefined;

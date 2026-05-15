@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, onSnapshot, runTransaction } from 'firebase/firestore';
 
 import { styles } from '../theme/globalStyles';
 import { usePatient } from '../context/PatientContext';
@@ -84,26 +84,43 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
       const pacienteNombre = session.nombre || profile?.name || 'Paciente';
       const pacienteDoc = session.cedula || profile?.docNumber || '';
 
-      // 2. Bloquear el slot en disponibilidad_doctores
       const realSlot = selectedSlot.split('_')[1];
-      const slotUpdate: Record<string, any> = {};
-      slotUpdate[`slots.${realSlot}`] = false;
-      await updateDoc(doc(db, 'disponibilidad_doctores', disponibilidadDocId), slotUpdate);
 
-      // 3. Crear documento en colección 'citas'
-      const citaData = {
-        pacienteNombre,
-        pacienteDoc: String(pacienteDoc),
-        doctorId: doctorId || '',
-        doctorNombre,
-        especialidad,
-        fecha: selectedDate,
-        hora: realSlot,
-        modalidad: 'Virtual',
-        estado: 'Confirmada',
-        creadaEn: serverTimestamp(),
-      };
-      await addDoc(collection(db, 'citas'), citaData);
+      // 2 & 3. Bloquear el slot y crear cita usando Transaction para evitar doble reserva (concurrencia)
+      await runTransaction(db, async (transaction) => {
+        const dispDocRef = doc(db, 'disponibilidad_doctores', disponibilidadDocId);
+        const dispDoc = await transaction.get(dispDocRef);
+        
+        if (!dispDoc.exists()) {
+          throw new Error('Disponibilidad no encontrada.');
+        }
+        
+        const slots = dispDoc.data().slots || {};
+        if (slots[realSlot] !== true) {
+          throw new Error('El horario ya ha sido reservado por otro paciente.');
+        }
+
+        // Bloquear el slot
+        const slotUpdate: Record<string, any> = {};
+        slotUpdate[`slots.${realSlot}`] = false;
+        transaction.update(dispDocRef, slotUpdate);
+
+        // Crear documento en colección 'citas'
+        const newCitaRef = doc(collection(db, 'citas'));
+        const citaData = {
+          pacienteNombre,
+          pacienteDoc: String(pacienteDoc),
+          doctorId: doctorId || '',
+          doctorNombre,
+          especialidad,
+          fecha: selectedDate,
+          hora: realSlot,
+          modalidad: 'Virtual',
+          estado: 'Confirmada',
+          creadaEn: serverTimestamp(),
+        };
+        transaction.set(newCitaRef, citaData);
+      });
 
       // 4. Navegar a pantalla de confirmación
       const slotLabel = `${selectedDate} a las ${realSlot}`;
@@ -115,7 +132,7 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
       });
     } catch (error: any) {
       console.error('Error al reservar cita:', error);
-      Alert.alert('Error', 'No se pudo confirmar la cita. Intenta de nuevo.');
+      Alert.alert('Error', error.message || 'No se pudo confirmar la cita. Intenta de nuevo.');
     } finally {
       setConfirming(false);
     }

@@ -6,7 +6,7 @@ export const docTypeOptions: Array<{ id: DocType; label: string }> = [
   { id: 'Pasaporte', label: 'Pasaporte' },
 ];
 
-export const emergencyNumberDefault = '123';
+export const emergencyNumberDefault = '018000-999-000';
 
 export type Slot = { id: string; label: string };
 

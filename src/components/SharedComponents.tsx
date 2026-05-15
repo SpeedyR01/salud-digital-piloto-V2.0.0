@@ -7,26 +7,52 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePatient } from '../context/PatientContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import { db } from '../../firebaseConfig';
+import { doc, setDoc, GeoPoint } from 'firebase/firestore';
+export const EMERGENCY_NUMBER = '3022969995'; // Operador (Asistente)
 
-const EMERGENCY_NUMBER = '123';
-
-export function callEmergency() {
-  // Activar ubicación en segundo plano de forma automática
-  (async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
-        console.log('📍 Ubicación activada para rastreo de emergencias:', location.coords);
-        // Aquí la ubicación se enviaría al sistema de emergencias (123)
-      }
-    } catch (error) {
-      console.warn('No se pudo obtener la ubicación para la emergencia', error);
+export async function callEmergency() {
+  let pacienteId = 'unknown';
+  let ubicacion = { lat: 0, lng: 0 };
+  
+  try {
+    const sessionString = await AsyncStorage.getItem('userSession');
+    if (sessionString) {
+      const session = JSON.parse(sessionString);
+      pacienteId = session.cedula || session.docNumber || 'unknown';
     }
-  })();
+  } catch (e) {
+    console.warn('Error leyendo sesión para emergencia', e);
+  }
+
+  // Activar ubicación en segundo plano de forma automática
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status === 'granted') {
+      const location = await Location.getCurrentPositionAsync({});
+      ubicacion = { lat: location.coords.latitude, lng: location.coords.longitude };
+      console.log('📍 Ubicación activada para rastreo de emergencias:', ubicacion);
+    }
+  } catch (error) {
+    console.warn('No se pudo obtener la ubicación para la emergencia', error);
+  }
+  
+  // Registrar emergencia directamente en Firestore
+  try {
+    const emergenciaRef = doc(db, 'emergencias', String(pacienteId));
+    await setDoc(emergenciaRef, {
+      pacienteId: String(pacienteId),
+      ubicacion: new GeoPoint(Number(ubicacion.lat || 0), Number(ubicacion.lng || 0)),
+      estado: 'activa',
+      timestamp: new Date().toISOString()
+    });
+    console.log('Emergencia registrada en Firestore directamente');
+  } catch (error) {
+    console.warn('Error registrando emergencia en Firestore:', error);
+  }
 
   if (Platform.OS === 'web') {
-    alert('🚨 EMERGENCIA\n\nLlamando al 123...\n(Su ubicación está siendo rastreada por los operadores)');
+    alert('🚨 EMERGENCIA\n\nLlamando al operador...\n(Su ubicación está siendo rastreada y el operador coordinará la ayuda)');
   } else {
     // Llamar directamente sin confirmación extra
     Linking.openURL(`tel:${EMERGENCY_NUMBER}`);

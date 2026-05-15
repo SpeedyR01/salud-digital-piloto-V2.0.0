@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Alert, TextInput } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { styles } from '../theme/globalStyles';
 import { usePatient } from '../context/PatientContext';
 import { EmergencyFAB, AppHeader } from '../components/SharedComponents';
@@ -15,17 +15,18 @@ export function HomeServicesScreen() {
   const nav = useNavigation<Nav>();
   const { profile } = usePatient();
   const [nextCita, setNextCita] = useState<any>(null);
+  const [pacienteInfo, setPacienteInfo] = useState<any>(null);
 
   useEffect(() => {
     if (!profile?.docNumber) return;
 
-    const q = query(
+    const qCita = query(
       collection(db, 'citas'),
       where('pacienteDoc', '==', String(profile.docNumber)),
       where('estado', 'in', ['Confirmada', 'En Espera'])
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribeCitas = onSnapshot(qCita, (snapshot) => {
       const citas = snapshot.docs.map(d => ({ ...d.data(), id: d.id })) as any[];
       
       citas.sort((a, b) => {
@@ -36,7 +37,17 @@ export function HomeServicesScreen() {
       setNextCita(citas.length > 0 ? citas[0] : null);
     });
 
-    return () => unsubscribe();
+    const qPaciente = query(collection(db, 'pacientes'), where('cedula', '==', String(profile.docNumber)));
+    const unsubscribePaciente = onSnapshot(qPaciente, (snap) => {
+      if (!snap.empty) {
+        setPacienteInfo(snap.docs[0].data());
+      }
+    });
+
+    return () => {
+      unsubscribeCitas();
+      unsubscribePaciente();
+    };
   }, [profile]);
   
   return (
@@ -61,6 +72,18 @@ export function HomeServicesScreen() {
           <Text style={{ fontSize: 13, fontWeight: '700', color: '#10b981', marginBottom: 8 }}>• Médico en línea</Text>
           <Text style={{ fontSize: 13, color: '#64748b', textAlign: 'center' }}>Estamos listos para atenderte ahora mismo.</Text>
         </View>
+
+        {pacienteInfo && (!pacienteInfo.alergias || !pacienteInfo.contactoEmergencia || !pacienteInfo.telefono) && (
+          <Pressable 
+            onPress={() => nav.navigate('PatientProfile')}
+            style={{ backgroundColor: '#fef2f2', borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: '#fecaca', flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={{ fontSize: 24, marginRight: 12 }}>⚠️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#991b1b', fontWeight: 'bold', fontSize: 14 }}>Acción Requerida</Text>
+              <Text style={{ color: '#b91c1c', fontSize: 12, marginTop: 4 }}>Para emergencias y contacto oportuno, es vital que completes todos tus datos, incluyendo tu teléfono, en tu perfil.</Text>
+            </View>
+          </Pressable>
+        )}
 
         <Pressable onPress={() => nav.navigate('GeneralAppointment')} style={{ backgroundColor: '#0256d3', borderRadius: 12, paddingVertical: 18, alignItems: 'center', marginBottom: 20, shadowColor: '#0256d3', shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}>
           <Text style={{ fontSize: 28, color: '#fff', marginBottom: 8 }}>📞</Text>
@@ -119,6 +142,48 @@ export function HomeServicesScreen() {
 export function PatientProfileScreen() {
   const nav = useNavigation<Nav>();
   const { profile, clearProfile } = usePatient();
+  
+  const [pacienteDocId, setPacienteDocId] = useState<string | null>(null);
+  const [alergias, setAlergias] = useState('');
+  const [contacto, setContacto] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!profile?.docNumber) return;
+    const q = query(collection(db, 'pacientes'), where('cedula', '==', String(profile.docNumber)));
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        setPacienteDocId(snap.docs[0].id);
+        const data = snap.docs[0].data();
+        if (!isEditing) {
+          setAlergias(data.alergias || '');
+          setContacto(data.contactoEmergencia || '');
+          setTelefono(data.telefono || '');
+        }
+      }
+    });
+    return () => unsub();
+  }, [profile?.docNumber, isEditing]);
+
+  const saveProfileData = async () => {
+    if (!pacienteDocId) return;
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'pacientes', pacienteDocId), {
+        alergias: alergias.trim(),
+        contactoEmergencia: contacto.trim(),
+        telefono: telefono.trim()
+      }, { merge: true });
+      setIsEditing(false);
+      Alert.alert('Éxito', 'Información médica actualizada');
+    } catch(e) {
+      Alert.alert('Error', 'No se pudo guardar la información');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem('userSession');
@@ -150,6 +215,70 @@ export function PatientProfileScreen() {
           <Text style={{fontSize: 24, fontWeight: 'bold', marginTop: 10, color: '#0b1b33'}}>{profile.name}</Text>
           <Text style={{fontSize: 16, color: '#4b5563', marginTop: 4}}>{profile.docType}: {profile.docNumber}</Text>
           <Text style={{fontSize: 14, color: '#0b74ff', marginTop: 4, fontWeight: 'bold'}}>PACIENTE SALUD DIGITAL</Text>
+        </View>
+
+        <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b' }}>Datos de Emergencia</Text>
+            {isEditing ? (
+              <Pressable onPress={saveProfileData} disabled={saving} style={{ backgroundColor: '#10b981', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>Guardar</Text>}
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => setIsEditing(true)} style={{ backgroundColor: '#f1f5f9', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }}>
+                <Text style={{ color: '#475569', fontWeight: 'bold', fontSize: 12 }}>Editar</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={{ marginBottom: 15 }}>
+            <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 'bold' }}>ALERGIAS</Text>
+            {isEditing ? (
+              <TextInput 
+                value={alergias} 
+                onChangeText={setAlergias} 
+                placeholder="Ej. Penicilina, Ninguna"
+                style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, color: '#1e293b' }} 
+              />
+            ) : (
+              <Text style={{ fontSize: 15, color: alergias ? '#1e293b' : '#94a3b8' }}>
+                {alergias || 'No registradas'}
+              </Text>
+            )}
+          </View>
+
+          <View>
+            <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 'bold' }}>CONTACTO DE EMERGENCIA</Text>
+            {isEditing ? (
+              <TextInput 
+                value={contacto} 
+                onChangeText={setContacto} 
+                placeholder="Ej. Esposo: 555-1234"
+                style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, color: '#1e293b' }} 
+              />
+            ) : (
+              <Text style={{ fontSize: 15, color: contacto ? '#1e293b' : '#94a3b8' }}>
+                {contacto || 'No registrado'}
+              </Text>
+            )}
+          </View>
+
+          <View style={{ marginTop: 15 }}>
+            <Text style={{ fontSize: 12, color: '#64748b', marginBottom: 4, fontWeight: 'bold' }}>TELÉFONO PERSONAL</Text>
+            {isEditing ? (
+              <TextInput 
+                value={telefono} 
+                onChangeText={setTelefono} 
+                placeholder="Ej. 300 123 4567"
+                keyboardType="phone-pad"
+                style={{ borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 10, color: '#1e293b' }} 
+              />
+            ) : (
+              <Text style={{ fontSize: 15, color: telefono ? '#1e293b' : '#94a3b8' }}>
+                {telefono || 'No registrado'}
+              </Text>
+            )}
+          </View>
         </View>
 
         <Text style={styles.resultsSectionTitle}>Opciones Médicas</Text>

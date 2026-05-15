@@ -33,6 +33,7 @@ import {
   EmergencyFlowScreen, 
   SymptomReportScreen, 
   DoctorDashboardScreen,
+  AssistantDashboardScreen,
   DoctorCitaDetailScreen,
   DoctorProfileScreen
 } from './src/screens/MedicalFeatures';
@@ -108,6 +109,7 @@ export default function App() {
           <Stack.Navigator initialRouteName="Login">
             <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
             <Stack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} options={{ title: 'Panel Médico' }} />
+            <Stack.Screen name="AssistantDashboard" component={AssistantDashboardScreen} options={{ title: 'Panel de Asistente' }} />
             
             <Stack.Screen name="OnboardingDocument" component={OnboardingDocumentScreen} options={{ headerShown: false }} />
             <Stack.Screen name="HomeServices" component={HomeServicesScreen} options={{ headerShown: false }} />

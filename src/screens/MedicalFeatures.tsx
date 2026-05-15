@@ -5,14 +5,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Calendar } from 'react-native-calendars';
 import { db } from '../../firebaseConfig';
-import { collection, query, where, getDocs, getDoc, addDoc, doc, setDoc, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, addDoc, doc, setDoc, updateDoc, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import * as Location from 'expo-location';
 import * as Sharing from 'expo-sharing';
 
 import { styles } from '../theme/globalStyles';
 import { usePatient } from '../context/PatientContext';
 import { Nav, RootStackParamList } from '../config/types';
-import { LargePrimaryButton, ScreenChrome, callEmergency, AppHeader } from '../components/SharedComponents';
+import { LargePrimaryButton, ScreenChrome, callEmergency, AppHeader, EMERGENCY_NUMBER } from '../components/SharedComponents';
 import { historyEntries, exams, mockHospitals, Exam, emergencyNumberDefault } from '../utils/mockData';
 
 function formatDate(iso: string) {
@@ -224,6 +224,59 @@ export function MedicalHistoryDetailScreen({ route }: { route: { params: { histo
 
 export function EmergencyFlowScreen() {
   const nav = useNavigation<Nav>();
+  const { profile } = usePatient();
+  const [isSendingAlert, setIsSendingAlert] = useState(false);
+
+  const handleEmergencyAction = async () => {
+    if (!profile) {
+      Alert.alert("Error", "No se encontró el perfil del paciente. Por favor ingrese sus datos.");
+      return;
+    }
+    setIsSendingAlert(true);
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("Permiso denegado", "Se necesita acceso a la ubicación para enrutar la emergencia de manera precisa.");
+        setIsSendingAlert(false);
+        return;
+      }
+
+      let loc = await Location.getCurrentPositionAsync({});
+      const patientLat = loc.coords.latitude;
+      const patientLng = loc.coords.longitude;
+
+      let closestHospital = mockHospitals[0];
+      let minDistance = haversineKm(patientLat, patientLng, closestHospital.lat, closestHospital.lng);
+
+      for (let i = 1; i < mockHospitals.length; i++) {
+        const d = haversineKm(patientLat, patientLng, mockHospitals[i].lat, mockHospitals[i].lng);
+        if (d < minDistance) {
+          minDistance = d;
+          closestHospital = mockHospitals[i];
+        }
+      }
+
+      await addDoc(collection(db, 'emergencias'), {
+        pacienteId: String(profile.docNumber),
+        estado: 'activa',
+        ubicacion: { latitud: patientLat, longitud: patientLng, lat: patientLat, lng: patientLng }, // Doble compatibilidad
+        hospitalCercanoId: closestHospital.id,
+        hospitalCercanoNombre: closestHospital.name,
+        distanciaKm: minDistance,
+        fechaCreacion: new Date().toISOString()
+      });
+
+      // Iniciar llamada telefónica automática al Asistente
+      Linking.openURL(`tel:${EMERGENCY_NUMBER}`);
+
+      Alert.alert("Emergencia Registrada", "Su ubicación ha sido enviada y estamos iniciando la llamada con el Asistente de guardia. Mantenga la línea abierta.");
+      nav.goBack();
+    } catch (e) {
+      Alert.alert("Error", "No se pudo procesar la emergencia. Por favor, llame directamente a los servicios locales de emergencia si es crítico.");
+    } finally {
+      setIsSendingAlert(false);
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff1f2' }}>
@@ -242,37 +295,37 @@ export function EmergencyFlowScreen() {
             ¿Necesita ayuda ahora?
           </Text>
           <Text style={{ fontSize: 15, color: '#b91c1c', marginTop: 6, textAlign: 'center', lineHeight: 22 }}>
-            Pulse el botón para llamar directamente{'\n'}al número nacional de emergencias.
+            Pulse el botón para enviar su ubicación exacta{'\n'}a nuestro equipo de asistentes médicos.
           </Text>
         </View>
 
         <Pressable
-          onPress={callEmergency}
+          onPress={handleEmergencyAction}
+          disabled={isSendingAlert}
           style={({ pressed }) => ({
-            backgroundColor: pressed ? '#b91c1c' : '#dc2626',
+            backgroundColor: pressed || isSendingAlert ? '#b91c1c' : '#dc2626',
             borderRadius: 18, paddingVertical: 22,
             flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12,
             shadowColor: '#dc2626', shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
           })}
         >
-          <Text style={{ fontSize: 28 }}>📞</Text>
-          <View>
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>Llamar al 123</Text>
-            <Text style={{ color: '#fecaca', fontSize: 13 }}>Número nacional de emergencias</Text>
-          </View>
+          {isSendingAlert ? (
+            <ActivityIndicator color="#fff" size="large" />
+          ) : (
+            <>
+              <Text style={{ fontSize: 28 }}>📍</Text>
+              <View>
+                <Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }}>Solicitar Asistencia</Text>
+                <Text style={{ color: '#fecaca', fontSize: 13 }}>Enrutamiento inteligente con geolocalización</Text>
+              </View>
+            </>
+          )}
         </Pressable>
 
         <View style={{ backgroundColor: '#fee2e2', borderRadius: 14, padding: 16, borderLeftWidth: 4, borderLeftColor: '#dc2626' }}>
-          <Text style={{ fontWeight: '700', color: '#7f1d1d', marginBottom: 6 }}>⚠️ Información importante</Text>
+          <Text style={{ fontWeight: '700', color: '#7f1d1d', marginBottom: 6 }}>⚠️ Nuevo Procedimiento</Text>
           <Text style={{ color: '#991b1b', lineHeight: 20 }}>
-            Al presionar "Llamar ahora", su dispositivo iniciará una llamada al número 123. Mantenga la calma y siga las instrucciones del operador.
-          </Text>
-        </View>
-
-        <View style={{ backgroundColor: '#f9fafb', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#e5e7eb' }}>
-          <Text style={{ fontWeight: '700', color: '#374151', marginBottom: 4 }}>📍 Ubicación (próximamente)</Text>
-          <Text style={{ color: '#6b7280', fontSize: 13, lineHeight: 20 }}>
-            En la próxima fase del piloto, la app detectará automáticamente su ubicación y la enviará a los servicios de emergencia.
+            Al solicitar asistencia, calcularemos el hospital más cercano y enviaremos su ubicación al Asistente. Él se encargará de coordinar la ambulancia si es necesario.
           </Text>
         </View>
 
@@ -280,11 +333,11 @@ export function EmergencyFlowScreen() {
           onPress={() => nav.goBack()}
           style={({ pressed }) => ({ marginTop: 8, padding: 14, borderRadius: 12, alignItems: 'center', backgroundColor: pressed ? '#f3f4f6' : '#fff', borderWidth: 1, borderColor: '#e5e7eb' })}
         >
-          <Text style={{ color: '#6b7280', fontWeight: '600', fontSize: 15 }}>Volver sin llamar</Text>
+          <Text style={{ color: '#6b7280', fontWeight: '600', fontSize: 15 }}>Volver sin reportar</Text>
         </Pressable>
 
         <Text style={{ textAlign: 'center', color: '#9ca3af', fontSize: 12, lineHeight: 18 }}>
-          Este botón no sustituye la atención médica presencial.{'\n'}Para emergencias siempre consulte un profesional.
+          Esta función utiliza los servicios de ubicación de su dispositivo.
         </Text>
       </ScrollView>
     </SafeAreaView>
@@ -500,7 +553,7 @@ export function DoctorDashboardScreen() {
 
     // Calcular el nuevo estado localmente
     const newSlots = { ...doctorSlots, [hora]: !doctorSlots[hora] };
-    
+
     // Actualizar la interfaz instantáneamente
     setDoctorSlots(newSlots);
 
@@ -515,7 +568,7 @@ export function DoctorDashboardScreen() {
         fecha: selectedDoctorDate,
         slots: newSlots
       };
-      
+
       if (!snapshot.empty) {
         await setDoc(doc(db, 'disponibilidad_doctores', snapshot.docs[0].id) as any, datosAGuardar, { merge: true });
       } else {
@@ -613,6 +666,8 @@ export function DoctorDashboardScreen() {
       Alert.alert("Error", "No se pudo actualizar el estado.");
     }
   };
+
+
 
   const renderAgenda = () => (
     <ScrollView style={styles.tabContent}>
@@ -956,6 +1011,138 @@ export function DoctorDashboardScreen() {
   );
 }
 
+export function AssistantDashboardScreen() {
+  const [emergenciasActivas, setEmergenciasActivas] = useState<any[]>([]);
+  const nav = useNavigation<any>();
+
+  useEffect(() => {
+    const q = query(collection(db, 'emergencias'), where('estado', '==', 'activa'));
+    const unsub = onSnapshot(q, async (snap) => {
+      const emgs: any[] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const emgsWithPatient = await Promise.all(emgs.map(async (emg) => {
+        try {
+          if (emg.pacienteId) {
+            const pDoc = await getDoc(doc(db, 'pacientes', String(emg.pacienteId)));
+            if (pDoc.exists()) {
+              return { ...emg, pacienteInfo: pDoc.data() };
+            }
+          }
+        } catch (e) { }
+        return emg;
+      }));
+      setEmergenciasActivas(emgsWithPatient);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleRellamada = async (pacienteId: string) => {
+    if (!pacienteId) {
+      Alert.alert("Error", "ID de paciente no disponible para rellamada.");
+      return;
+    }
+    try {
+      const pDoc = await getDoc(doc(db, 'pacientes', String(pacienteId)));
+      if (pDoc.exists()) {
+        const data = pDoc.data();
+        const telefono = data.telefono || data.phone || data.celular || '123';
+        Linking.openURL(`tel:${telefono}`);
+      } else {
+        Alert.alert("Error", "No se encontró el documento del paciente para realizar la rellamada.");
+      }
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Hubo un problema al consultar el teléfono del paciente.");
+    }
+  };
+
+  const handleCaminoA = async (emg: any) => {
+    try {
+      Alert.alert(
+        "Camino A: Emergencia Real",
+        `Contactando al hospital "${emg.hospitalCercanoNombre}" para enviar ambulancia y transfiriendo datos del paciente...`,
+        [{ text: "OK" }]
+      );
+      await updateDoc(doc(db, 'emergencias', emg.id), { estado: 'atendida' });
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "No se pudo actualizar el estado de la emergencia.");
+    }
+  };
+
+  const handleCaminoB = async (emg: any) => {
+    try {
+      Alert.alert(
+        "Camino B: No es Emergencia",
+        "Se determinó que no es necesario el traslado. Se calmó al paciente durante la llamada y se cierra el evento.",
+        [{ text: "OK" }]
+      );
+      await updateDoc(doc(db, 'emergencias', emg.id), { estado: 'cerrada_no_emergencia' });
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "No se pudo actualizar el estado de la emergencia.");
+    }
+  };
+
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem('userSession');
+    nav.reset({ index: 0, routes: [{ name: 'Login' }] });
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+      <AppHeader title="Panel de Emergencias" onProfilePress={handleLogout} doctorInitials="AS" isDoctor={true} />
+      <ScrollView style={styles.tabContent}>
+        <View style={styles.tabHeaderRow}>
+          <Text style={[styles.cardTitle, { color: '#dc2626' }]}>Emergencias Activas 🚨</Text>
+        </View>
+        {emergenciasActivas.length === 0 ? (
+          <View style={[styles.card, { alignItems: 'center', padding: 30 }]}>
+            <Text style={{ fontSize: 16, color: '#10b981', fontWeight: 'bold' }}>No hay emergencias activas</Text>
+          </View>
+        ) : (
+          emergenciasActivas.map(emg => (
+            <View key={emg.id} style={[styles.card, { borderColor: '#ef4444', borderWidth: 2, backgroundColor: '#fef2f2' }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#991b1b' }}>Paciente: {emg.pacienteInfo?.nombre || emg.pacienteId}</Text>
+                <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>ACTIVA</Text>
+              </View>
+              <View style={{ marginVertical: 10 }}>
+                <Text><Text style={{ fontWeight: 'bold' }}>Historia Clínica (Alergias):</Text> {emg.pacienteInfo?.alergias || 'No registradas'}</Text>
+                <Text><Text style={{ fontWeight: 'bold' }}>Contacto de Emergencia:</Text> {emg.pacienteInfo?.contactoEmergencia || 'No registrado'}</Text>
+                <Text><Text style={{ fontWeight: 'bold' }}>Ubicación GPS:</Text> Lat: {(emg.ubicacion?.latitud !== undefined ? emg.ubicacion.latitud : emg.ubicacion?.lat) !== undefined ? Number(emg.ubicacion.latitud !== undefined ? emg.ubicacion.latitud : emg.ubicacion.lat).toFixed(4) : 'N/A'}, Lng: {(emg.ubicacion?.longitud !== undefined ? emg.ubicacion.longitud : emg.ubicacion?.lng) !== undefined ? Number(emg.ubicacion.longitud !== undefined ? emg.ubicacion.longitud : emg.ubicacion.lng).toFixed(4) : 'N/A'}</Text>
+                {emg.hospitalCercanoNombre && (
+                  <Text style={{ marginTop: 6, color: '#b91c1c' }}>
+                    <Text style={{ fontWeight: 'bold' }}>Hospital más cercano calculado:</Text> {emg.hospitalCercanoNombre} (a {Number(emg.distanciaKm).toFixed(2)} km)
+                  </Text>
+                )}
+              </View>
+              <Text style={{ fontWeight: 'bold', marginBottom: 8, color: '#7f1d1d' }}>Gestión de la llamada y caminos de acción:</Text>
+
+              <View style={{ marginBottom: 12 }}>
+                <Pressable
+                  style={[styles.button, { backgroundColor: '#2563eb', marginBottom: 8 }]}
+                  onPress={() => handleRellamada(emg.pacienteId)}
+                >
+                  <Text style={styles.buttonText}>📞 Llamar al Paciente (Re-contactar)</Text>
+                </Pressable>
+              </View>
+
+              <View style={{ gap: 10 }}>
+                <Pressable style={[styles.button, { backgroundColor: '#dc2626' }]} onPress={() => handleCaminoA(emg)}>
+                  <Text style={[styles.buttonText, { fontSize: 14 }]}>Camino A: Emergencia Real (Contactar Hospital)</Text>
+                </Pressable>
+                <Pressable style={[styles.button, { backgroundColor: '#059669' }]} onPress={() => handleCaminoB(emg)}>
+                  <Text style={[styles.buttonText, { fontSize: 14 }]}>Camino B: No es emergencia (Cerrar Evento)</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 // --- 5. DETALLE DE CITA (DOCTOR) ---
 
 export function DoctorCitaDetailScreen({ route }: { route: { params: RootStackParamList['DoctorCitaDetail'] } }) {
@@ -1073,13 +1260,27 @@ export function DoctorCitaDetailScreen({ route }: { route: { params: RootStackPa
       }
 
       if (foundNewDoctor) {
+        // Bloquear el slot del nuevo doctor para que no le reserven esa hora
+        const qDisp = query(
+          collection(db, 'disponibilidad_doctores'),
+          where('fecha', '==', newDate),
+          where('doctorId', '==', newDoctorId)
+        );
+        const dispSnap = await getDocs(qDisp);
+        if (!dispSnap.empty) {
+          const dispDoc = dispSnap.docs[0];
+          const slotUpdate: any = {};
+          slotUpdate[`slots.${newTime}`] = false;
+          await updateDoc(doc(db, 'disponibilidad_doctores', dispDoc.id), slotUpdate);
+        }
+
         // Se encontró un reemplazo, reasignar y notificar
         await setDoc(doc(db, 'citas', citaId) as any, {
           doctorId: newDoctorId,
           doctorNombre: newDoctorName,
           fecha: newDate,
           hora: newTime,
-          mensajeReasignacion: (newDate === fecha && newTime === hora) 
+          mensajeReasignacion: (newDate === fecha && newTime === hora)
             ? `El doctor canceló y tu cita fue reasignada al Dr(a). ${newDoctorName} a la misma hora.`
             : `El doctor canceló y tu cita fue reagendada para el ${newDate} a las ${newTime} con el Dr(a). ${newDoctorName}.`
         }, { merge: true });

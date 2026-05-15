@@ -54,7 +54,7 @@ export function OnboardingDocumentScreen() {
     try {
       const cleanDoc = docNumber.trim();
       let foundUser = null;
-      let userRole: 'pacientes' | 'especialistas' | null = null;
+      let userRole: 'pacientes' | 'especialistas' | 'asistentes' | null = null;
       let userDocId = null;
 
       // Buscar en pacientes primero
@@ -73,6 +73,15 @@ export function OnboardingDocumentScreen() {
           foundUser = querySnapshot.docs[0].data();
           userDocId = querySnapshot.docs[0].id;
           userRole = 'especialistas';
+        } else {
+          // Si no, buscar en asistentes
+          q = query(collection(db, 'asistentes'), where('cedula', '==', cleanDoc));
+          querySnapshot = await getDocs(q);
+          if (!querySnapshot.empty) {
+            foundUser = querySnapshot.docs[0].data();
+            userDocId = querySnapshot.docs[0].id;
+            userRole = 'asistentes';
+          }
         }
       }
 
@@ -100,6 +109,8 @@ export function OnboardingDocumentScreen() {
         setTimeout(() => {
           if (userRole === 'pacientes') {
             nav.replace('HomeServices');
+          } else if (userRole === 'asistentes') {
+            nav.replace('AssistantDashboard');
           } else {
             nav.replace('DoctorDashboard');
           }
@@ -127,7 +138,7 @@ export function OnboardingDocumentScreen() {
 
           <View style={styles.idEmergencyBox}>
             <Text style={styles.idEmergencyIcon}>!</Text>
-            <Text style={styles.idEmergencyText}>¿Es una emergencia? Llame al 123.</Text>
+            <Text style={styles.idEmergencyText}>¿Es una emergencia? Contacte al operador.</Text>
           </View>
 
           <Text style={styles.idWelcomeTitle}>Acceso al sistema</Text>
