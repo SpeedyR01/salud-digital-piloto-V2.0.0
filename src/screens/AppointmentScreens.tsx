@@ -39,25 +39,62 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
   const [disponibilidadDocId, setDisponibilidadDocId] = useState<string | null>(null);
   const [doctorId, setDoctorId] = useState<string | null>(null);
   const [doctorNombre, setDoctorNombre] = useState<string>('');
-  
+
   const [doctoresDisponibles, setDoctoresDisponibles] = useState<any[]>([]);
 
   const fetchDisponibilidad = async (fecha: string) => {
     try {
       setLoading(true);
-      const q = query(
+      
+      // 1. Obtener todos los especialistas reales registrados para esta especialidad
+      const qEsp = query(
+        collection(db, 'especialistas'),
+        where('especialidad', '==', especialidad)
+      );
+      const snapEsp = await getDocs(qEsp);
+      const specialists = snapEsp.docs.map(d => ({ ...d.data(), id: d.id }));
+
+      // 2. Obtener las disponibilidades reales registradas en Firestore para esta fecha y especialidad
+      const qDisp = query(
         collection(db, 'disponibilidad_doctores'),
         where('fecha', '==', fecha),
         where('especialidad', '==', especialidad)
       );
-      const snapshot = await getDocs(q);
+      const snapshot = await getDocs(qDisp);
+      const registeredDisps = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
 
-      if (!snapshot.empty) {
-        const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
-        setDoctoresDisponibles(docs);
-      } else {
-        setDoctoresDisponibles([]);
-      }
+      // 3. Cruzar la información para que cada doctor real siempre tenga disponibilidad
+      const listadoFinal: any[] = [];
+      const defaultSlots = {
+        "08:00": true,
+        "09:00": true,
+        "10:00": true,
+        "11:00": true,
+        "14:00": true,
+        "15:00": true,
+        "16:00": true
+      };
+
+      specialists.forEach((esp: any) => {
+        // Buscar si ya existe disponibilidad real guardada para este día y doctor
+        const registered = registeredDisps.find((d: any) => d.doctorId === esp.cedula);
+        if (registered) {
+          listadoFinal.push(registered);
+        } else {
+          // Si no la hay, creamos una disponibilidad por defecto para este especialista real
+          listadoFinal.push({
+            id: `temp_disp_${esp.cedula}_${fecha}`,
+            doctorId: esp.cedula,
+            nombre: esp.nombre || 'Especialista',
+            especialidad: especialidad,
+            fecha: fecha,
+            slots: { ...defaultSlots },
+            sede: esp.sede || 'Salud Digital'
+          });
+        }
+      });
+
+      setDoctoresDisponibles(listadoFinal);
       setSelectedSlot('');
       setDisponibilidadDocId(null);
       setDoctorId(null);
@@ -85,25 +122,55 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
       const pacienteDoc = session.cedula || profile?.docNumber || '';
 
       const realSlot = selectedSlot.split('_')[1];
+      const isMockDoctor = disponibilidadDocId.startsWith('temp_disp_');
 
       // 2 & 3. Bloquear el slot y crear cita usando Transaction para evitar doble reserva (concurrencia)
       await runTransaction(db, async (transaction) => {
         const dispDocRef = doc(db, 'disponibilidad_doctores', disponibilidadDocId);
-        const dispDoc = await transaction.get(dispDocRef);
         
-        if (!dispDoc.exists()) {
-          throw new Error('Disponibilidad no encontrada.');
-        }
-        
-        const slots = dispDoc.data().slots || {};
-        if (slots[realSlot] !== true) {
-          throw new Error('El horario ya ha sido reservado por otro paciente.');
-        }
+        let slots: Record<string, boolean> = {};
+        if (isMockDoctor) {
+          // Si es una disponibilidad por defecto que no existe en BD, inicializamos los slots
+          slots = {
+            "08:00": true,
+            "09:00": true,
+            "10:00": true,
+            "11:00": true,
+            "14:00": true,
+            "15:00": true,
+            "16:00": true
+          };
+          if (slots[realSlot] !== true) {
+            throw new Error('El horario ya ha sido reservado por otro paciente.');
+          }
 
-        // Bloquear el slot
-        const slotUpdate: Record<string, any> = {};
-        slotUpdate[`slots.${realSlot}`] = false;
-        transaction.update(dispDocRef, slotUpdate);
+          // Guardamos el nuevo documento con el horario ocupado en Firestore por primera vez
+          const slotsUpdate = { ...slots, [realSlot]: false };
+          transaction.set(dispDocRef, {
+            doctorId: doctorId || '',
+            nombre: doctorNombre,
+            especialidad: especialidad,
+            fecha: selectedDate,
+            slots: slotsUpdate,
+            sede: selectedDoctor?.sede || 'Salud Digital'
+          });
+        } else {
+          // Si el documento de disponibilidad ya existe, hacemos la transacción estándar
+          const dispDoc = await transaction.get(dispDocRef);
+          if (!dispDoc.exists()) {
+            throw new Error('Disponibilidad no encontrada.');
+          }
+
+          slots = dispDoc.data().slots || {};
+          if (slots[realSlot] !== true) {
+            throw new Error('El horario ya ha sido reservado por otro paciente.');
+          }
+
+          // Bloquear el slot
+          const slotUpdate: Record<string, any> = {};
+          slotUpdate[`slots.${realSlot}`] = false;
+          transaction.update(dispDocRef, slotUpdate);
+        }
 
         // Crear documento en colección 'citas'
         const newCitaRef = doc(collection(db, 'citas'));
@@ -275,9 +342,9 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
           {confirming
             ? <ActivityIndicator color="#fff" />
             : <>
-                <Text style={styles.appointmentConfirmText}>Confirmar Cita Virtual</Text>
-                <Text style={styles.appointmentConfirmIcon}>✓</Text>
-              </>
+              <Text style={styles.appointmentConfirmText}>Confirmar Cita Virtual</Text>
+              <Text style={styles.appointmentConfirmIcon}>✓</Text>
+            </>
           }
         </Pressable>
       </View>
@@ -295,29 +362,29 @@ export function GeneralAppointmentScreen() {
   useEffect(() => {
     if (!profile) return;
     const sessionDoc = String(profile.docNumber || '');
-    
+
     const qUser = query(collection(db, 'citas'), where('pacienteDoc', '==', sessionDoc), where('modalidad', '==', 'Inmediata'), where('estado', 'in', ['En Espera', 'Confirmada']));
-    
+
     const unsubscribeUser = onSnapshot(qUser, async (snap) => {
       if (!snap.empty) {
         const cita = { ...snap.docs[0].data(), id: snap.docs[0].id } as any;
         setCurrentCita(cita);
-        
+
         if (cita.estado === 'En Espera') {
-           const qAll = query(collection(db, 'citas'), where('modalidad', '==', 'Inmediata'), where('estado', '==', 'En Espera'));
-           const snapAll = await getDocs(qAll);
-           let countBefore = 0;
-           snapAll.docs.forEach(d => {
-              if (d.data().creadaEn < cita.creadaEn) countBefore++;
-           });
-           setQueuePosition(countBefore);
+          const qAll = query(collection(db, 'citas'), where('modalidad', '==', 'Inmediata'), where('estado', '==', 'En Espera'));
+          const snapAll = await getDocs(qAll);
+          let countBefore = 0;
+          snapAll.docs.forEach(d => {
+            if (d.data().creadaEn < cita.creadaEn) countBefore++;
+          });
+          setQueuePosition(countBefore);
         }
       } else {
         setCurrentCita(null);
       }
       setLoading(false);
     });
-    
+
     return () => unsubscribeUser();
   }, [profile]);
 
@@ -326,18 +393,18 @@ export function GeneralAppointmentScreen() {
     try {
       const hoy = new Date().toISOString().split('T')[0];
       const ahora = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      
+
       await addDoc(collection(db, 'citas'), {
         pacienteNombre: profile?.name || 'Paciente',
         pacienteDoc: String(profile?.docNumber || ''),
-        doctorId: '', 
+        doctorId: '',
         doctorNombre: 'Médico de Turno',
         especialidad: 'Médico General',
         fecha: hoy,
         hora: ahora,
         modalidad: 'Inmediata',
         estado: 'En Espera',
-        creadaEn: new Date().getTime() 
+        creadaEn: new Date().getTime()
       });
     } catch (e) {
       Alert.alert("Error", "No se pudo solicitar la atención.");
@@ -433,7 +500,7 @@ export function GeneralAppointmentScreen() {
 
             <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
               <View style={{ width: 50, height: 50, borderRadius: 8, backgroundColor: '#0ea5e9', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                 <Text style={{ fontSize: 30 }}>👨‍⚕️</Text>
+                <Text style={{ fontSize: 30 }}>👨‍⚕️</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 11, fontWeight: '800', color: '#2563eb', letterSpacing: 1, textTransform: 'uppercase' }}>Su Médico</Text>
@@ -456,17 +523,17 @@ export function GeneralAppointmentScreen() {
               <Text style={{ color: '#cbd5e1', fontSize: 20 }}>›</Text>
             </Pressable>
 
-<Pressable onPress={() => {}} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 40, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
-                <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
-                  <Text style={{ fontSize: 18, color: '#2563eb' }}>❓</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>Información rápida</Text>
-                  <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                    Tenga sus síntomas y preguntas listas para describir al doctor durante la llamada rápida.
-                  </Text>
-                </View>
-              </Pressable>
+            <Pressable onPress={() => { }} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 40, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
+              <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                <Text style={{ fontSize: 18, color: '#2563eb' }}>❓</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: '#1e293b' }}>Información rápida</Text>
+                <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  Tenga sus síntomas y preguntas listas para describir al doctor durante la llamada rápida.
+                </Text>
+              </View>
+            </Pressable>
           </View>
         )}
       </ScrollView>
@@ -547,7 +614,7 @@ export function SpecialistListScreen() {
             style={({ pressed }) => [styles.pickCard, pressed ? styles.pickCardPressed : null]}
           >
             <View style={[styles.pickIconCircle, { backgroundColor: s.bg }]}>
-               <Text style={[styles.pickIcon, { color: s.color }]}>{s.icon}</Text>
+              <Text style={[styles.pickIcon, { color: s.color }]}>{s.icon}</Text>
             </View>
             <View style={styles.pickCardText}>
               <Text style={styles.pickCardTitle}>{s.id}</Text>
@@ -649,31 +716,31 @@ export function MisCitasScreen() {
         for (const d of snapshot.docs) {
           const data = d.data();
           let estadoActual = data.estado;
-          
+
           if (estadoActual === 'Completada' || estadoActual === 'Cancelada') {
             continue;
           }
-          
+
           // Omitir citas inmediatas pendientes (se gestionan en la sala de espera)
           if (data.modalidad === 'Inmediata') {
             continue;
           }
 
           const { past, msAgo } = isPast(data.fecha, data.hora);
-          
+
           if ((estadoActual === 'Confirmada' || estadoActual === 'En Espera') && past) {
             estadoActual = 'Perdida';
             try {
               await updateDoc(doc(db, 'citas', d.id), { estado: 'Perdida' });
-            } catch (e) {}
+            } catch (e) { }
           }
-          
+
           // Auto-delete if missed and older than 1 day (24h = 86400000ms)
           if (estadoActual === 'Perdida' && past && msAgo > 86400000) {
-             try {
-               await deleteDoc(doc(db, 'citas', d.id));
-             } catch (e) {}
-             continue; // No agregar a la lista
+            try {
+              await deleteDoc(doc(db, 'citas', d.id));
+            } catch (e) { }
+            continue; // No agregar a la lista
           }
 
           lista.push({ ...data, estado: estadoActual, id: d.id });
@@ -706,12 +773,12 @@ export function MisCitasScreen() {
         } else {
           Alert.alert("Atención", reagendadas[0].mensajeReasignacion);
         }
-        
+
         // Marcar en la base de datos que ya se notificó al usuario para no volver a lanzar la alerta
         reagendadas.forEach(async c => {
           try {
             await updateDoc(doc(db, 'citas', c.id), { notificadoReasignacion: true });
-          } catch(e) {}
+          } catch (e) { }
         });
       }
     }
@@ -720,9 +787,9 @@ export function MisCitasScreen() {
   const estadoColor = (estado: string) => {
     switch (estado) {
       case 'Confirmada': return { bg: '#d1fae5', text: '#065f46', dot: '#10b981' };
-      case 'Cancelada':  return { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' };
-      case 'Perdida':    return { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' };
-      default:           return { bg: '#fef3c7', text: '#92400e', dot: '#f59e0b' };
+      case 'Cancelada': return { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' };
+      case 'Perdida': return { bg: '#fee2e2', text: '#991b1b', dot: '#ef4444' };
+      default: return { bg: '#fef3c7', text: '#92400e', dot: '#f59e0b' };
     }
   };
 
@@ -747,10 +814,10 @@ export function MisCitasScreen() {
 
         // 2. Marcar la cita como Cancelada
         await updateDoc(doc(db, 'citas', cita.id), { estado: 'Cancelada' });
-        
+
         // 3. Removerla de la lista local
         setCitas(prev => prev.filter(c => c.id !== cita.id));
-        
+
         if (Platform.OS === 'web') {
           window.alert('La cita ha sido cancelada y el espacio ha sido liberado.');
         }
@@ -883,7 +950,7 @@ export function MisCitasScreen() {
                 ) : cita.estado === 'Perdida' ? (
                   <Pressable
                     onPress={() => {
-                       nav.navigate('SpecialistAppointment' as any, { specialization: cita.especialidad });
+                      nav.navigate('SpecialistAppointment' as any, { specialization: cita.especialidad });
                     }}
                     style={{ marginTop: 14, backgroundColor: '#dc2626', borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 }}
                   >
