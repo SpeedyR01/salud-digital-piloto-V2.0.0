@@ -1115,6 +1115,30 @@ export function AssistantDashboardScreen() {
                     <Text style={{ fontWeight: 'bold' }}>Hospital más cercano calculado:</Text> {emg.hospitalCercanoNombre} (a {Number(emg.distanciaKm).toFixed(2)} km)
                   </Text>
                 )}
+
+                {emg.pacienteInfo?.flags && (
+                  <View style={{ marginTop: 10, padding: 8, backgroundColor: '#ffe4e6', borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' }}>
+                    <Text style={{ fontWeight: 'bold', color: '#be123c', marginBottom: 4 }}>🚨 RIESGOS CLÍNICOS DETECTADOS:</Text>
+                    <Text style={{ color: '#be123c', fontSize: 13 }}><Text style={{ fontWeight: 'bold' }}>Crítico:</Text> {emg.pacienteInfo.flags.critico}</Text>
+                    <Text style={{ color: '#be123c', fontSize: 13 }}><Text style={{ fontWeight: 'bold' }}>Moderado:</Text> {emg.pacienteInfo.flags.moderado}</Text>
+                  </View>
+                )}
+                
+                {emg.pacienteInfo?.biometrics && (
+                  <View style={{ marginTop: 10, padding: 8, backgroundColor: '#f0fdf4', borderRadius: 8, borderWidth: 1, borderColor: '#bbf7d0' }}>
+                    <Text style={{ fontWeight: 'bold', color: '#166534', marginBottom: 4 }}>📊 BIOMETRÍA:</Text>
+                    <Text style={{ color: '#166534', fontSize: 13 }}>Peso: {emg.pacienteInfo.biometrics.peso_kg}kg | IMC: {emg.pacienteInfo.biometrics.imc}</Text>
+                    <Text style={{ color: '#166534', fontSize: 13 }}>SPO2: {emg.pacienteInfo.biometrics.spo2} | FC: {emg.pacienteInfo.biometrics.frecuencia_cardiaca}</Text>
+                  </View>
+                )}
+
+                {emg.pacienteInfo?.clinical_profile && (
+                  <View style={{ marginTop: 10, padding: 8, backgroundColor: '#eff6ff', borderRadius: 8, borderWidth: 1, borderColor: '#bfdbfe' }}>
+                    <Text style={{ fontWeight: 'bold', color: '#1e40af', marginBottom: 4 }}>📋 PERFIL CLÍNICO:</Text>
+                    <Text style={{ color: '#1e40af', fontSize: 13, fontWeight: 'bold' }}>Veredicto: {emg.pacienteInfo.clinical_profile.veredicto}</Text>
+                    <Text style={{ color: '#1e40af', fontSize: 13 }}>{emg.pacienteInfo.clinical_profile.conclusion}</Text>
+                  </View>
+                )}
               </View>
               <Text style={{ fontWeight: 'bold', marginBottom: 8, color: '#7f1d1d' }}>Gestión de la llamada y caminos de acción:</Text>
 

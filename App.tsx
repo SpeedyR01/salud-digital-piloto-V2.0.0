@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+/*import { seedPatientsToDatabase } from './src/utils/dbSeeder';*/
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { PatientProfile, PatientContext } from './src/context/PatientContext';
@@ -14,11 +15,11 @@ import { LoginScreen, OnboardingDocumentScreen } from './src/screens/AuthScreens
 import { HomeServicesScreen, PatientProfileScreen } from './src/screens/PatientScreens';
 
 // Screens - Appointments
-import { 
-  GeneralAppointmentScreen, 
-  GeneralAppointmentConfirmScreen, 
-  SpecialistListScreen, 
-  SpecialistAppointmentScreen, 
+import {
+  GeneralAppointmentScreen,
+  GeneralAppointmentConfirmScreen,
+  SpecialistListScreen,
+  SpecialistAppointmentScreen,
   SpecialistAppointmentConfirmScreen,
   MisCitasScreen
 } from './src/screens/AppointmentScreens';
@@ -27,11 +28,11 @@ import {
 import { ExamsListScreen, ExamDetailScreen, ExamResultViewerScreen } from './src/screens/ExamScreens';
 
 // Screens - Medical features & Doctor
-import { 
-  MedicalHistoryScreen, 
-  MedicalHistoryDetailScreen, 
-  EmergencyFlowScreen, 
-  SymptomReportScreen, 
+import {
+  MedicalHistoryScreen,
+  MedicalHistoryDetailScreen,
+  EmergencyFlowScreen,
+  SymptomReportScreen,
   DoctorDashboardScreen,
   AssistantDashboardScreen,
   DoctorCitaDetailScreen,
@@ -46,7 +47,7 @@ const STORAGE_KEY_PROFILE = '@salud_digital_patient_profile_v1';
 export default function App() {
   const [profile, setProfileState] = useState<PatientProfile | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
-  
+
   const theme = useMemo(() => ({
     ...DefaultTheme,
     colors: {
@@ -54,6 +55,11 @@ export default function App() {
       background: '#f7f7f7',
     },
   }), []);
+
+  /*
+    useEffect(() => {
+      seedPatientsToDatabase();
+    }, []);*/
 
   useEffect(() => {
     (async () => {
@@ -110,24 +116,24 @@ export default function App() {
             <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
             <Stack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} options={{ title: 'Panel Médico' }} />
             <Stack.Screen name="AssistantDashboard" component={AssistantDashboardScreen} options={{ title: 'Panel de Asistente' }} />
-            
+
             <Stack.Screen name="OnboardingDocument" component={OnboardingDocumentScreen} options={{ headerShown: false }} />
             <Stack.Screen name="HomeServices" component={HomeServicesScreen} options={{ headerShown: false }} />
-            
+
             <Stack.Screen name="GeneralAppointment" component={GeneralAppointmentScreen} options={{ headerShown: false }} />
             <Stack.Screen name="GeneralAppointmentConfirm" component={GeneralAppointmentConfirmScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistList" component={SpecialistListScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistAppointment" component={SpecialistAppointmentScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SpecialistAppointmentConfirm" component={SpecialistAppointmentConfirmScreen} options={{ headerShown: false }} />
             <Stack.Screen name="MisCitas" component={MisCitasScreen} options={{ headerShown: false }} />
-            
+
             <Stack.Screen name="ExamsList" component={ExamsListScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ExamDetail" component={ExamDetailScreen} options={{ headerShown: false }} />
             <Stack.Screen name="ExamResultViewer" component={ExamResultViewerScreen} options={{ headerShown: false }} />
-            
+
             <Stack.Screen name="MedicalHistory" component={MedicalHistoryScreen} options={{ headerShown: false }} />
             <Stack.Screen name="MedicalHistoryDetail" component={MedicalHistoryDetailScreen} options={{ headerShown: false }} />
-            
+
             <Stack.Screen name="SymptomReport" component={SymptomReportScreen} options={{ title: "Mis sintomas" }} />
             <Stack.Screen name="EmergencyFlow" component={EmergencyFlowScreen} options={{ headerShown: false }} />
             <Stack.Screen name="PatientProfile" component={PatientProfileScreen} options={{ headerShown: false }} />

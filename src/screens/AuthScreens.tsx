@@ -61,8 +61,18 @@ export function OnboardingDocumentScreen() {
       let q = query(collection(db, 'pacientes'), where('cedula', '==', cleanDoc));
       let querySnapshot = await getDocs(q);
 
+      if (querySnapshot.empty) {
+        q = query(collection(db, 'pacientes'), where('docNumber', '==', cleanDoc));
+        querySnapshot = await getDocs(q);
+      }
+
       if (!querySnapshot.empty) {
-        foundUser = querySnapshot.docs[0].data();
+        const docData = querySnapshot.docs[0].data();
+        foundUser = {
+          ...docData,
+          nombre: docData.nombre || docData.name, // Aseguramos que tenga nombre
+          cedula: docData.cedula || docData.docNumber
+        };
         userDocId = querySnapshot.docs[0].id;
         userRole = 'pacientes';
       } else {

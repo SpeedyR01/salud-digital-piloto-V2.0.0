@@ -149,6 +149,7 @@ export function PatientProfileScreen() {
   const [telefono, setTelefono] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [patientData, setPatientData] = useState<any>(null);
 
   useEffect(() => {
     if (!profile?.docNumber) return;
@@ -157,6 +158,7 @@ export function PatientProfileScreen() {
       if (!snap.empty) {
         setPacienteDocId(snap.docs[0].id);
         const data = snap.docs[0].data();
+        setPatientData(data);
         if (!isEditing) {
           setAlergias(data.alergias || '');
           setContacto(data.contactoEmergencia || '');
@@ -280,6 +282,38 @@ export function PatientProfileScreen() {
             )}
           </View>
         </View>
+
+        {patientData?.biometrics && (
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 15 }}>Biometría (Última Medición)</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+              <View style={{ width: '48%' }}><Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold' }}>PESO</Text><Text style={{ fontSize: 15, color: '#1e293b' }}>{patientData.biometrics.peso_kg} kg</Text></View>
+              <View style={{ width: '48%' }}><Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold' }}>IMC</Text><Text style={{ fontSize: 15, color: '#1e293b' }}>{patientData.biometrics.imc}</Text></View>
+              <View style={{ width: '48%' }}><Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold' }}>SPO2</Text><Text style={{ fontSize: 15, color: '#1e293b' }}>{patientData.biometrics.spo2}</Text></View>
+              <View style={{ width: '48%' }}><Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold' }}>FREC. CARDIACA</Text><Text style={{ fontSize: 15, color: '#1e293b' }}>{patientData.biometrics.frecuencia_cardiaca}</Text></View>
+            </View>
+          </View>
+        )}
+
+        {patientData?.clinical_profile && (
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, marginBottom: 20, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 15 }}>Perfil Clínico</Text>
+            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold', marginBottom: 4 }}>VEREDICTO</Text>
+            <Text style={{ fontSize: 15, color: '#0b764a', fontWeight: 'bold', marginBottom: 12 }}>{patientData.clinical_profile.veredicto}</Text>
+            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 'bold', marginBottom: 4 }}>CONCLUSIÓN</Text>
+            <Text style={{ fontSize: 14, color: '#1e293b' }}>{patientData.clinical_profile.conclusion}</Text>
+          </View>
+        )}
+
+        {patientData?.flags && (
+          <View style={{ backgroundColor: '#fef2f2', borderRadius: 16, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: '#fecaca' }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#991b1b', marginBottom: 15 }}>Alertas y Riesgos</Text>
+            <Text style={{ fontSize: 12, color: '#991b1b', fontWeight: 'bold', marginBottom: 4 }}>CRÍTICO</Text>
+            <Text style={{ fontSize: 14, color: '#b91c1c', marginBottom: 12 }}>{patientData.flags.critico}</Text>
+            <Text style={{ fontSize: 12, color: '#c2410c', fontWeight: 'bold', marginBottom: 4 }}>MODERADO</Text>
+            <Text style={{ fontSize: 14, color: '#c2410c' }}>{patientData.flags.moderado}</Text>
+          </View>
+        )}
 
         <Text style={styles.resultsSectionTitle}>Opciones Médicas</Text>
         

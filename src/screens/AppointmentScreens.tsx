@@ -121,7 +121,9 @@ export function BaseAppointmentScreen({ especialidad, targetRouteName }: { espec
       const pacienteNombre = session.nombre || profile?.name || 'Paciente';
       const pacienteDoc = session.cedula || profile?.docNumber || '';
 
-      const realSlot = selectedSlot.split('_')[1];
+      // Usamos pop() para asegurar que siempre obtenemos la hora al final,
+      // incluso si el ID del doctor contiene guiones bajos (ej. temp_disp_...)
+      const realSlot = selectedSlot.split('_').pop() as string;
       const isMockDoctor = disponibilidadDocId.startsWith('temp_disp_');
 
       // 2 & 3. Bloquear el slot y crear cita usando Transaction para evitar doble reserva (concurrencia)
